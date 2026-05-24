@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { CreditCard as CardIcon, Car, Users, Plus, Trash2, CheckCircle2, DollarSign } from 'lucide-react';
+import { CreditCard as CardIcon, Car, Users, Plus, Trash2, CheckCircle2, DollarSign, Calendar, Landmark } from 'lucide-react';
 
 export default function DebtsManager({
   cards,
@@ -14,7 +14,8 @@ export default function DebtsManager({
   onPayVehicleLoan,
   onAddFriendDebt,
   onRemoveFriendDebt,
-  onPayFriendDebt
+  onPayFriendDebt,
+  onProcessMonthlyBilling // NUEVO: Callback de liquidación
 }) {
   const [activeTab, setActiveTab] = useState('cards'); // 'cards', 'vehicle', 'friends'
 
@@ -55,7 +56,6 @@ export default function DebtsManager({
       cutoffDay: parseInt(cardCutoff || 1),
       paymentDay: parseInt(cardPayment || 10)
     });
-    // Reset Form
     setCardName(''); setCardLimit(''); setCardBalance(''); setCardCutoff(''); setCardPayment('');
   };
 
@@ -69,7 +69,6 @@ export default function DebtsManager({
       monthlyPayment: parseFloat(vehQuota),
       interestRate: parseFloat(vehRate || 0)
     });
-    // Reset Form
     setVehName(''); setVehTotal(''); setVehBalance(''); setVehQuota(''); setVehRate('');
   };
 
@@ -81,14 +80,7 @@ export default function DebtsManager({
       type: friendType,
       balance: parseFloat(friendBalance)
     });
-    // Reset Form
     setFriendName(''); setFriendBalance('');
-  };
-
-  // Payment actions
-  const openPaymentModal = (type, name) => {
-    setPayTargetName({ type, name });
-    setPaymentAmount('');
   };
 
   const executePayment = (e) => {
@@ -105,6 +97,19 @@ export default function DebtsManager({
     }
 
     setPayTargetName(null);
+  };
+
+  // NUEVO: Calcular la cuota estimada de este mes para una compra diferida
+  const calculateInstallmentPayment = (purchase) => {
+    const principal = purchase.amount / purchase.installments;
+    // Intereses calculados sobre saldo pendiente
+    const remainingVal = purchase.amount - (principal * (purchase.installments - purchase.remainingInstallments));
+    const interest = remainingVal * (purchase.interestRate / 100);
+    return {
+      principal,
+      interest,
+      total: principal + interest
+    };
   };
 
   return (
@@ -134,7 +139,7 @@ export default function DebtsManager({
         </button>
       </div>
 
-      {/* Grid: Formulario a un lado, Lista al otro */}
+      {/* Grid: Contenidos */}
       <div className="dashboard-grid">
         
         {/* LADO DE LISTADOS */}
@@ -147,45 +152,126 @@ export default function DebtsManager({
                   Aún no has registrado ninguna tarjeta de crédito.
                 </div>
               ) : (
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '20px' }}>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: '20px' }}>
                   {cards.map((card, index) => {
                     const percentUsed = card.limit > 0 ? (card.balance / card.limit) * 100 : 0;
+                    
+                    // Calcular facturación mensual de diferidos de esta tarjeta
+                    let totalMonthlyInstallment = 0;
+                    const deferredItems = card.deferredPurchases || [];
+                    
+                    deferredItems.forEach(d => {
+                      totalMonthlyInstallment += calculateInstallmentPayment(d).total;
+                    });
+
                     return (
-                      <div key={index} className="credit-card-item">
-                        <div>
-                          <div className="flex-between">
-                            <span className="credit-card-name">{card.name}</span>
-                            <Trash2 
-                              size={16} 
-                              style={{ cursor: 'pointer', opacity: 0.7 }}
-                              onClick={() => onRemoveCard(card.name)}
-                            />
+                      <div key={index} className="glass-card" style={{ padding: '24px' }}>
+                        {/* Cabecera Tarjeta */}
+                        <div style={{ display: 'flex', gap: '20px', flexWrap: 'wrap', marginBottom: '20px', borderBottom: '1px solid var(--card-border)', paddingBottom: '15px' }}>
+                          {/* Tarjeta Visual de Crédito */}
+                          <div className="credit-card-item" style={{ margin: 0, width: '280px', flexShrink: 0 }}>
+                            <div className="flex-between">
+                              <span className="credit-card-name" style={{ fontSize: '15px', fontWeight: '700' }}>{card.name}</span>
+                              <Trash2 
+                                size={15} 
+                                style={{ cursor: 'pointer', opacity: 0.8 }}
+                                onClick={() => onRemoveCard(card.name)}
+                              />
+                            </div>
+                            <div className="credit-card-chip"></div>
+                            <div className="credit-card-number">•••• •••• •••• {index + 1}789</div>
+                            <div className="credit-card-limit-info">
+                              <span>Corte: Día {card.cutoffDay} | Pago: Día {card.paymentDay}</span>
+                            </div>
                           </div>
-                          <div className="credit-card-chip"></div>
-                          <div className="credit-card-number">•••• •••• •••• {index + 1}234</div>
+
+                          {/* Estadísticas de la Tarjeta */}
+                          <div style={{ flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
+                            <div className="flex-between" style={{ fontSize: '14px', marginBottom: '8px' }}>
+                              <span style={{ color: 'var(--text-muted)' }}>Cupo Utilizado:</span>
+                              <span style={{ fontWeight: '700' }}>{formatMoney(card.balance)}</span>
+                            </div>
+                            <div className="flex-between" style={{ fontSize: '14px', marginBottom: '8px' }}>
+                              <span style={{ color: 'var(--text-muted)' }}>Cupo Disponible:</span>
+                              <span style={{ fontWeight: '700', color: 'var(--color-green)' }}>{formatMoney(card.limit - card.balance)}</span>
+                            </div>
+                            <div className="flex-between" style={{ fontSize: '14px', marginBottom: '12px' }}>
+                              <span style={{ color: 'var(--text-muted)' }}>Límite Total:</span>
+                              <span style={{ fontWeight: '700' }}>{formatMoney(card.limit)}</span>
+                            </div>
+                            <div className="progress-bar-container">
+                              <div 
+                                className="progress-bar-fill" 
+                                style={{ 
+                                  width: `${Math.min(100, percentUsed)}%`,
+                                  background: percentUsed > 80 ? 'var(--color-red)' : percentUsed > 50 ? 'var(--color-orange)' : 'var(--color-purple)' 
+                                }}
+                              ></div>
+                            </div>
+                          </div>
                         </div>
-                        <div>
-                          <div className="flex-between" style={{ fontSize: '13px', margin: '4px 0' }}>
-                            <span>Utilizado: {formatMoney(card.balance)}</span>
-                            <span>Límite: {formatMoney(card.limit)}</span>
+
+                        {/* Listado de Compras Diferidas (Si existen) */}
+                        {deferredItems.length > 0 && (
+                          <div style={{ marginTop: '20px', background: 'rgba(255,255,255,0.01)', padding: '15px', borderRadius: '12px', border: '1px solid var(--card-border)' }}>
+                            <h4 style={{ fontSize: '14px', color: 'var(--color-purple)', marginBottom: '12px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                              <Calendar size={15} /> Compras Diferidas (a Cuotas)
+                            </h4>
+                            <div style={{ display: 'grid', gap: '8px' }}>
+                              {deferredItems.map((item, idx) => {
+                                const details = calculateInstallmentPayment(item);
+                                return (
+                                  <div key={idx} className="flex-between" style={{ padding: '8px 12px', background: 'rgba(0,0,0,0.15)', borderRadius: '8px', fontSize: '13px' }}>
+                                    <div>
+                                      <strong>{item.description}</strong>
+                                      <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '2px' }}>
+                                        Monto: {formatMoney(item.amount)} | Restan {item.remainingInstallments} de {item.installments} cuotas | Int: {item.interestRate}%
+                                      </div>
+                                    </div>
+                                    <div style={{ textAlign: 'right' }}>
+                                      <div style={{ fontWeight: '600' }}>{formatMoney(details.total)} / mes</div>
+                                      <span style={{ fontSize: '10px', color: 'var(--text-muted)' }}>
+                                        (Cap: {formatMoney(details.principal)} + Int: {formatMoney(details.interest)})
+                                      </span>
+                                    </div>
+                                  </div>
+                                );
+                              })}
+                            </div>
                           </div>
-                          <div className="progress-bar-container" style={{ background: 'rgba(255,255,255,0.2)' }}>
-                            <div 
-                              className="progress-bar-fill" 
-                              style={{ 
-                                width: `${Math.min(100, percentUsed)}%`,
-                                background: percentUsed > 80 ? 'var(--color-red)' : 'white' 
-                              }}
-                            ></div>
+                        )}
+
+                        {/* Acciones de Pago */}
+                        <div className="flex-between" style={{ marginTop: '20px', paddingTop: '15px', borderTop: '1px solid var(--card-border)' }}>
+                          <div>
+                            {totalMonthlyInstallment > 0 && (
+                              <div style={{ fontSize: '13px' }}>
+                                <span style={{ color: 'var(--text-muted)' }}>Facturación de cuotas este mes:</span>{' '}
+                                <strong style={{ color: 'var(--color-orange)', fontSize: '14px' }}>{formatMoney(totalMonthlyInstallment)}</strong>
+                              </div>
+                            )}
                           </div>
-                          <div className="credit-card-limit-info" style={{ marginTop: '10px' }}>
-                            <span>Corte: Día {card.cutoffDay} | Pago: Día {card.paymentDay}</span>
+                          
+                          <div style={{ display: 'flex', gap: '10px' }}>
+                            {totalMonthlyInstallment > 0 && (
+                              <button 
+                                className="btn" 
+                                style={{ borderColor: 'var(--color-orange)', color: 'var(--color-orange)', fontSize: '12.5px' }}
+                                onClick={() => {
+                                  if (window.confirm(`¿Deseas pagar la cuota de este mes de tus compras diferidas por un valor total de ${formatMoney(totalMonthlyInstallment)}? Esto deducirá el valor de tu saldo disponible.`)) {
+                                    onProcessMonthlyBilling(card.name);
+                                  }
+                                }}
+                              >
+                                Cobrar Mes ({formatMoney(totalMonthlyInstallment)})
+                              </button>
+                            )}
                             <button 
                               className="btn btn-primary" 
-                              style={{ padding: '4px 10px', fontSize: '11px', background: 'white', color: 'var(--color-purple)' }}
+                              style={{ fontSize: '12.5px' }}
                               onClick={() => openPaymentModal('card', card.name)}
                             >
-                              Abonar
+                              Abono Directo Deuda
                             </button>
                           </div>
                         </div>

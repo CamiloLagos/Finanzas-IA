@@ -10,6 +10,8 @@ export default function Transactions({ transactions, cards, onAddTransaction, on
   const [description, setDescription] = useState('');
   const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
   const [selectedCard, setSelectedCard] = useState('');
+  const [installments, setInstallments] = useState(1);      // NUEVO: Estado de cuotas
+  const [interestRate, setInterestRate] = useState(0);      // NUEVO: Estado de interés
 
   // Filters state
   const [searchTerm, setSearchTerm] = useState('');
@@ -23,6 +25,8 @@ export default function Transactions({ transactions, cards, onAddTransaction, on
     e.preventDefault();
     if (!amount || parseFloat(amount) <= 0 || !description) return;
 
+    const isCard = type === 'expense' && selectedCard !== '';
+
     onAddTransaction({
       id: Date.now().toString(),
       type,
@@ -30,13 +34,17 @@ export default function Transactions({ transactions, cards, onAddTransaction, on
       category: type === 'income' ? 'Ingresos' : category,
       description,
       date,
-      targetName: type === 'expense' ? selectedCard : ''
+      targetName: type === 'expense' ? selectedCard : '',
+      installments: isCard ? parseInt(installments, 10) : 1,
+      interestRate: isCard ? parseFloat(interestRate) : 0
     });
 
     // Reset Form
     setAmount('');
     setDescription('');
     setSelectedCard('');
+    setInstallments(1);
+    setInterestRate(0);
   };
 
   // Filtered transactions
@@ -118,6 +126,36 @@ export default function Transactions({ transactions, cards, onAddTransaction, on
                   ))}
                 </select>
               </div>
+
+              {/* NUEVO: Campos dinámicos de diferimiento cuando se selecciona tarjeta */}
+              {selectedCard !== '' && (
+                <div className="form-row" style={{ animation: 'slideIn 0.2s ease-out' }}>
+                  <div className="form-group">
+                    <label>Diferir a cuotas</label>
+                    <input 
+                      type="number" 
+                      min="1" 
+                      className="form-control" 
+                      value={installments}
+                      onChange={(e) => setInstallments(e.target.value)}
+                      required
+                    />
+                  </div>
+                  <div className="form-group">
+                    <label>Interés mensual %</label>
+                    <input 
+                      type="number" 
+                      step="0.01" 
+                      min="0" 
+                      className="form-control" 
+                      placeholder="Ej: 1.8"
+                      value={interestRate}
+                      onChange={(e) => setInterestRate(e.target.value)}
+                      required
+                    />
+                  </div>
+                </div>
+              )}
             </>
           )}
 
@@ -150,11 +188,10 @@ export default function Transactions({ transactions, cards, onAddTransaction, on
         </form>
       </div>
 
-      {/* Lado Derecho: Historial de transacciones con filtros */}
+      {/* Lado Derecho: Historial */}
       <div className="glass-card">
         <h3 style={{ marginBottom: '20px' }}>Historial de Movimientos</h3>
 
-        {/* Barra de Filtros */}
         <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr', gap: '10px', marginBottom: '20px' }}>
           <div style={{ position: 'relative' }}>
             <Search size={16} style={{ position: 'absolute', left: '10px', top: '12px', color: 'var(--text-muted)' }} />
@@ -206,7 +243,6 @@ export default function Transactions({ transactions, cards, onAddTransaction, on
           </select>
         </div>
 
-        {/* Tabla */}
         {filteredTransactions.length === 0 ? (
           <div style={{ padding: '60px 0', textAlign: 'center', color: 'var(--text-muted)' }}>
             No se encontraron movimientos con los filtros aplicados.
@@ -234,7 +270,14 @@ export default function Transactions({ transactions, cards, onAddTransaction, on
                       </div>
                     </td>
                     <td>
-                      <div style={{ fontWeight: '500' }}>{tx.description}</div>
+                      <div style={{ fontWeight: '500' }}>
+                        {tx.description}
+                        {tx.installments > 1 && (
+                          <span style={{ fontSize: '11px', color: 'var(--color-purple)', marginLeft: '8px', fontWeight: 'bold' }}>
+                            ({tx.installments} cuotas {tx.interestRate > 0 ? `@ ${tx.interestRate}%` : ''})
+                          </span>
+                        )}
+                      </div>
                     </td>
                     <td>
                       <span className={`badge badge-${tx.type === 'income' || tx.type === 'friend_receive_payback' ? 'income' : tx.type === 'expense' ? 'expense' : 'payment'}`}>

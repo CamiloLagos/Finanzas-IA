@@ -47,7 +47,6 @@ export default function App() {
     if (localTelegramToken) setTelegramToken(localTelegramToken);
     if (localChatHistory) setChatHistory(JSON.parse(localChatHistory));
     
-    // Seed default demo data if localStorage is completely empty
     if (!localBalance && !localTransactions && !localCards && !localVehicles && !localFriends) {
       loadDemoData();
     }
@@ -97,8 +96,32 @@ export default function App() {
   const loadDemoData = () => {
     const demoBalance = 2450000;
     const demoCards = [
-      { name: 'Visa Bancolombia', limit: 4500000, balance: 650000, cutoffDay: 15, paymentDay: 5 },
-      { name: 'Mastercard Nubank', limit: 2000000, balance: 120000, cutoffDay: 20, paymentDay: 30 }
+      { 
+        name: 'Visa Bancolombia', 
+        limit: 4500000, 
+        balance: 650000, 
+        cutoffDay: 15, 
+        paymentDay: 5,
+        deferredPurchases: [
+          {
+            id: 'demo-deferred-1',
+            description: 'Compra tiquetes aéreos',
+            amount: 650000,
+            installments: 6,
+            remainingInstallments: 5,
+            interestRate: 1.8,
+            date: '2026-05-18'
+          }
+        ]
+      },
+      { 
+        name: 'Mastercard Nubank', 
+        limit: 2000000, 
+        balance: 120000, 
+        cutoffDay: 20, 
+        paymentDay: 30,
+        deferredPurchases: []
+      }
     ];
     const demoVehicles = [
       { name: 'Crédito Chevrolet Tracker', totalAmount: 42000000, balance: 35400000, monthlyPayment: 680000, interestRate: 14.2 }
@@ -108,12 +131,12 @@ export default function App() {
       { name: 'Carlos Gómez', type: 'por_pagar', balance: 80000 }
     ];
     const demoTransactions = [
-      { id: '1', type: 'income', amount: 3200000, category: 'Ingresos', description: 'Pago Nómina Mayo', date: '2026-05-15', targetName: '' },
-      { id: '2', type: 'expense', amount: 150000, category: 'Alimentación', description: 'Mercado de la semana', date: '2026-05-16', targetName: '' },
-      { id: '3', type: 'expense', amount: 650000, category: 'Otros', description: 'Compra tiquetes aéreos', date: '2026-05-18', targetName: 'Visa Bancolombia' },
-      { id: '4', type: 'expense', amount: 120000, category: 'Compras', description: 'Zapatos deportivos', date: '2026-05-19', targetName: 'Mastercard Nubank' },
-      { id: '5', type: 'expense', amount: 45000, category: 'Transporte', description: 'Gasolina', date: '2026-05-20', targetName: '' },
-      { id: '6', type: 'loan_payment', amount: 680000, category: 'Transporte', description: 'Pago cuota Crédito Vehículo: Chevrolet Tracker', date: '2026-05-22', targetName: 'Crédito Chevrolet Tracker' }
+      { id: '1', type: 'income', amount: 3200000, category: 'Ingresos', description: 'Pago Nómina Mayo', date: '2026-05-15', targetName: '', installments: 1, interestRate: 0 },
+      { id: '2', type: 'expense', amount: 150000, category: 'Alimentación', description: 'Mercado de la semana', date: '2026-05-16', targetName: '', installments: 1, interestRate: 0 },
+      { id: '3', type: 'expense', amount: 650000, category: 'Otros', description: 'Compra tiquetes aéreos', date: '2026-05-18', targetName: 'Visa Bancolombia', installments: 6, interestRate: 1.8 },
+      { id: '4', type: 'expense', amount: 120000, category: 'Compras', description: 'Zapatos deportivos', date: '2026-05-19', targetName: 'Mastercard Nubank', installments: 1, interestRate: 0 },
+      { id: '5', type: 'expense', amount: 45000, category: 'Transporte', description: 'Gasolina', date: '2026-05-20', targetName: '', installments: 1, interestRate: 0 },
+      { id: '6', type: 'loan_payment', amount: 680000, category: 'Transporte', description: 'Pago cuota Crédito Vehículo: Chevrolet Tracker', date: '2026-05-22', targetName: 'Crédito Chevrolet Tracker', installments: 1, interestRate: 0 }
     ];
 
     setBalance(demoBalance);
@@ -122,9 +145,8 @@ export default function App() {
     setFriends(demoFriends);
     setTransactions(demoTransactions);
     
-    // Seed initial message if chat is empty
     setChatHistory([
-      { sender: 'ai', text: '¡Hola! He cargado tus datos demo para que pruebes las funcionalidades. \n\nTienes un crédito de vehículo Chevrolet, dos tarjetas y préstamos activos con Juan y Carlos. ¿En qué puedo ayudarte hoy?' }
+      { sender: 'ai', text: '¡Hola! He cargado tus datos demo para que pruebes las deudas diferidas a cuotas.\n\nTienes una compra diferida en tu tarjeta Visa de unos tiquetes aéreos a 6 cuotas con 1.8% de interés. ¿En qué te puedo asesorar hoy?' }
     ]);
   };
 
@@ -143,23 +165,47 @@ export default function App() {
   const importData = (importedState) => {
     setBalance(importedState.balance);
     setTransactions(importedState.transactions);
-    setCards(importedState.cards);
+    setCards(importedState.cards.map(c => ({ ...c, deferredPurchases: c.deferredPurchases || [] })));
     setVehicleLoans(importedState.vehicleLoans);
     setFriends(importedState.friends);
     if (importedState.chatHistory) setChatHistory(importedState.chatHistory);
   };
 
-  // ADD MANUAL TRANSACTION CALLBACK
+  // ADD MANUAL TRANSACTION CALLBACK (Updated with Installments)
   const handleAddTransaction = (tx) => {
-    // 1. Apply financial impact based on transaction type
+    const installments = tx.installments || 1;
+    const interestRate = tx.interestRate || 0;
+
     if (tx.type === 'expense') {
       if (tx.targetName) {
         // Cargar a tarjeta de crédito
-        setCards(prev => prev.map(c => 
-          c.name === tx.targetName ? { ...c, balance: c.balance + tx.amount } : c
-        ));
+        setCards(prev => prev.map(c => {
+          if (c.name === tx.targetName) {
+            const updatedDeferred = [...(c.deferredPurchases || [])];
+            
+            // Si tiene cuotas, registrarla en diferidos
+            if (installments > 1) {
+              updatedDeferred.push({
+                id: tx.id || Date.now().toString(),
+                description: tx.description,
+                amount: tx.amount,
+                installments: installments,
+                remainingInstallments: installments,
+                interestRate: interestRate,
+                date: tx.date || new Date().toISOString().split('T')[0]
+              });
+            }
+
+            return {
+              ...c,
+              balance: c.balance + tx.amount,
+              deferredPurchases: updatedDeferred
+            };
+          }
+          return c;
+        }));
       } else {
-        // Restar de saldo disponible
+        // Restar de saldo disponible en efectivo
         setBalance(prev => prev - tx.amount);
       }
     } else if (tx.type === 'income') {
@@ -167,60 +213,63 @@ export default function App() {
       setBalance(prev => prev + tx.amount);
     }
 
-    // 2. Add to transaction list
-    setTransactions(prev => [tx, ...prev]);
+    // Guardar transacción
+    const txToSave = {
+      ...tx,
+      installments,
+      interestRate
+    };
+    setTransactions(prev => [txToSave, ...prev]);
   };
 
-  // REMOVE TRANSACTION CALLBACK (REVERTS ITS VALUE)
+  // REMOVE TRANSACTION CALLBACK
   const handleRemoveTransaction = (id) => {
     const tx = transactions.find(t => t.id === id);
     if (!tx) return;
 
     if (tx.type === 'expense') {
       if (tx.targetName) {
-        // Deduct from card balance
-        setCards(prev => prev.map(c => 
-          c.name === tx.targetName ? { ...c, balance: Math.max(0, c.balance - tx.amount) } : c
-        ));
+        setCards(prev => prev.map(c => {
+          if (c.name === tx.targetName) {
+            return {
+              ...c,
+              balance: Math.max(0, c.balance - tx.amount),
+              deferredPurchases: (c.deferredPurchases || []).filter(d => d.id !== id)
+            };
+          }
+          return c;
+        }));
       } else {
-        // Add back to available balance
         setBalance(prev => prev + tx.amount);
       }
     } else if (tx.type === 'income') {
-      // Deduct from available balance
       setBalance(prev => Math.max(0, prev - tx.amount));
     } else if (tx.type === 'card_payment') {
-      // Return money back to available balance, and add debt back to card balance
       setBalance(prev => prev + tx.amount);
       setCards(prev => prev.map(c => 
         c.name === tx.targetName ? { ...c, balance: c.balance + tx.amount } : c
       ));
     } else if (tx.type === 'loan_payment') {
-      // Return money to balance, add debt back to vehicle loan balance
       setBalance(prev => prev + tx.amount);
       setVehicleLoans(prev => prev.map(v => 
         v.name === tx.targetName ? { ...v, balance: v.balance + tx.amount } : v
       ));
     } else if (tx.type === 'friend_lend') {
-      // Return money to available balance, and reduce friend debt
       setBalance(prev => prev + tx.amount);
       setFriends(prev => prev.map(f => 
         f.name === tx.targetName ? { ...f, balance: Math.max(0, f.balance - tx.amount) } : f
       ));
     } else if (tx.type === 'friend_borrow') {
-      // Subtract from available balance, reduce friend debt
       setBalance(prev => Math.max(0, prev - tx.amount));
       setFriends(prev => prev.map(f => 
         f.name === tx.targetName ? { ...f, balance: Math.max(0, f.balance - tx.amount) } : f
       ));
     } else if (tx.type === 'friend_payback') {
-      // Give money back to balance, add debt back to friend
       setBalance(prev => prev + tx.amount);
       setFriends(prev => prev.map(f => 
         f.name === tx.targetName ? { ...f, balance: f.balance + tx.amount } : f
       ));
     } else if (tx.type === 'friend_receive_payback') {
-      // Subtract money from available balance, add debt back to friend
       setBalance(prev => Math.max(0, prev - tx.amount));
       setFriends(prev => prev.map(f => 
         f.name === tx.targetName ? { ...f, balance: f.balance + tx.amount } : f
@@ -232,7 +281,11 @@ export default function App() {
 
   // CARD MANAGEMENT
   const handleAddCard = (newCard) => {
-    setCards(prev => [...prev, newCard]);
+    const cardWithDeferred = {
+      ...newCard,
+      deferredPurchases: newCard.deferredPurchases || []
+    };
+    setCards(prev => [...prev, cardWithDeferred]);
   };
 
   const handleRemoveCard = (cardName) => {
@@ -245,7 +298,6 @@ export default function App() {
       c.name === cardName ? { ...c, balance: Math.max(0, c.balance - amount) } : c
     ));
     
-    // Add transaction log
     const tx = {
       id: Date.now().toString(),
       type: 'card_payment',
@@ -253,7 +305,67 @@ export default function App() {
       category: 'Servicios',
       description: `Pago Tarjeta: ${cardName}`,
       date: new Date().toISOString().split('T')[0],
-      targetName: cardName
+      targetName: cardName,
+      installments: 1,
+      interestRate: 0
+    };
+    setTransactions(prev => [tx, ...prev]);
+  };
+
+  // NEW: PROCESS MONTHLY CARD BILLING (Abono de Cuotas Diferidas)
+  const handleProcessMonthlyBilling = (cardName) => {
+    const card = cards.find(c => c.name === cardName);
+    if (!card) return;
+
+    let totalPrincipalPaid = 0;
+    let totalInterestPaid = 0;
+    const updatedDeferredPurchases = [];
+
+    // Calcular cuotas de compras diferidas
+    (card.deferredPurchases || []).forEach(d => {
+      const remaining = d.remainingInstallments;
+      if (remaining > 0) {
+        // Calcular cuota del mes usando amortización fija de capital + intereses sobre saldo restante
+        const principalMonth = d.amount / d.installments;
+        const interestMonth = (d.amount - (principalMonth * (d.installments - remaining))) * (d.interestRate / 100);
+        
+        totalPrincipalPaid += principalMonth;
+        totalInterestPaid += interestMonth;
+
+        const nextRemaining = remaining - 1;
+        if (nextRemaining > 0) {
+          updatedDeferredPurchases.push({
+            ...d,
+            remainingInstallments: nextRemaining
+          });
+        }
+      }
+    });
+
+    const totalToPay = totalPrincipalPaid + totalInterestPaid;
+    if (totalToPay <= 0) return;
+
+    // Actualizar balances
+    setBalance(prev => Math.max(0, prev - totalToPay));
+    setCards(prev => prev.map(c => 
+      c.name === cardName ? {
+        ...c,
+        balance: Math.max(0, c.balance - totalPrincipalPaid),
+        deferredPurchases: updatedDeferredPurchases
+      } : c
+    ));
+
+    // Guardar transacción
+    const tx = {
+      id: Date.now().toString(),
+      type: 'card_payment',
+      amount: totalToPay,
+      category: 'Servicios',
+      description: `Pago mensualidad tarjeta: ${cardName} (Abono a diferidos)`,
+      date: new Date().toISOString().split('T')[0],
+      targetName: cardName,
+      installments: 1,
+      interestRate: 0
     };
     setTransactions(prev => [tx, ...prev]);
   };
@@ -273,7 +385,6 @@ export default function App() {
       v.name === loanName ? { ...v, balance: Math.max(0, v.balance - amount) } : v
     ));
 
-    // Add transaction log
     const tx = {
       id: Date.now().toString(),
       type: 'loan_payment',
@@ -281,7 +392,9 @@ export default function App() {
       category: 'Transporte',
       description: `Pago cuota Crédito Vehículo: ${loanName}`,
       date: new Date().toISOString().split('T')[0],
-      targetName: loanName
+      targetName: loanName,
+      installments: 1,
+      interestRate: 0
     };
     setTransactions(prev => [tx, ...prev]);
   };
@@ -308,7 +421,6 @@ export default function App() {
     if (!friend) return;
 
     if (friend.type === 'por_pagar') {
-      // Yo le pago a mi amigo (mi saldo disminuye, mi deuda disminuye)
       setBalance(prev => Math.max(0, prev - amount));
       setFriends(prev => prev.map(f => 
         f.name === friendName ? { ...f, balance: Math.max(0, f.balance - amount) } : f
@@ -321,11 +433,12 @@ export default function App() {
         category: 'Otros',
         description: `Pago de deuda a ${friendName}`,
         date: new Date().toISOString().split('T')[0],
-        targetName: friendName
+        targetName: friendName,
+        installments: 1,
+        interestRate: 0
       };
       setTransactions(prev => [tx, ...prev]);
     } else {
-      // Mi amigo me paga a mí (mi saldo aumenta, su deuda conmigo disminuye)
       setBalance(prev => prev + amount);
       setFriends(prev => prev.map(f => 
         f.name === friendName ? { ...f, balance: Math.max(0, f.balance - amount) } : f
@@ -336,15 +449,17 @@ export default function App() {
         type: 'friend_receive_payback',
         amount,
         category: 'Otros',
-        description: `${friendName} pagó deuda`,
+        description: `${friendName} pagó de deuda`,
         date: new Date().toISOString().split('T')[0],
-        targetName: friendName
+        targetName: friendName,
+        installments: 1,
+        interestRate: 0
       };
       setTransactions(prev => [tx, ...prev]);
     }
   };
 
-  // REGISTER TRANSACTION PARSED BY AI/TELEGRAM/SIMULATOR
+  // REGISTER PARSED TRANSACTION FROM CHAT/TELEGRAM
   const handleRegisterParsedTransaction = (result) => {
     if (!result || !result.success) return;
 
@@ -355,19 +470,58 @@ export default function App() {
       category: result.category || 'Otros',
       description: result.description || 'Transacción registrada',
       date: new Date().toISOString().split('T')[0],
-      targetName: result.targetName || ''
+      targetName: result.targetName || '',
+      installments: result.installments || 1,
+      interestRate: result.interestRate || 0
     };
 
+    // Aplicar lógica
     if (result.type === 'expense') {
       if (result.targetName) {
-        // Cargar a tarjeta de crédito. Si no existe la crea.
         setCards(prev => {
           const exists = prev.find(c => c.name.toLowerCase() === result.targetName.toLowerCase());
           if (exists) {
-            return prev.map(c => c.name.toLowerCase() === result.targetName.toLowerCase() ? { ...c, balance: c.balance + result.amount } : c);
+            return prev.map(c => {
+              if (c.name.toLowerCase() === result.targetName.toLowerCase()) {
+                const updatedDeferred = [...(c.deferredPurchases || [])];
+                if (tx.installments > 1) {
+                  updatedDeferred.push({
+                    id: tx.id,
+                    description: tx.description,
+                    amount: tx.amount,
+                    installments: tx.installments,
+                    remainingInstallments: tx.installments,
+                    interestRate: tx.interestRate,
+                    date: tx.date
+                  });
+                }
+                return {
+                  ...c,
+                  balance: c.balance + tx.amount,
+                  deferredPurchases: updatedDeferred
+                };
+              }
+              return c;
+            });
           } else {
-            // Crea una tarjeta Visa/Mastercard temporal
-            return [...prev, { name: result.targetName, limit: 3000000, balance: result.amount, cutoffDay: 15, paymentDay: 30 }];
+            // Tarjeta nueva
+            const newCard = {
+              name: result.targetName,
+              limit: 3000000,
+              balance: tx.amount,
+              cutoffDay: 15,
+              paymentDay: 30,
+              deferredPurchases: tx.installments > 1 ? [{
+                id: tx.id,
+                description: tx.description,
+                amount: tx.amount,
+                installments: tx.installments,
+                remainingInstallments: tx.installments,
+                interestRate: tx.interestRate,
+                date: tx.date
+              }] : []
+            };
+            return [...prev, newCard];
           }
         });
       } else {
@@ -390,7 +544,6 @@ export default function App() {
       setFriends(prev => {
         const exists = prev.find(f => f.name.toLowerCase() === result.targetName.toLowerCase());
         if (exists) {
-          // Actualiza a tipo por cobrar y suma balance
           return prev.map(f => f.name.toLowerCase() === result.targetName.toLowerCase() 
             ? { ...f, type: 'por_cobrar', balance: f.balance + result.amount } : f
           );
@@ -402,7 +555,6 @@ export default function App() {
       setFriends(prev => {
         const exists = prev.find(f => f.name.toLowerCase() === result.targetName.toLowerCase());
         if (exists) {
-          // Actualiza a tipo por pagar y suma balance
           return prev.map(f => f.name.toLowerCase() === result.targetName.toLowerCase() 
             ? { ...f, type: 'por_pagar', balance: f.balance + result.amount } : f
           );
@@ -428,10 +580,8 @@ export default function App() {
   const handleStartTelegram = (token) => {
     setTelegramToken(token);
     
-    // Conector que le pasaremos al polling service
     const onMessage = async (msg) => {
       let result;
-      // Get state snapshots immediately to avoid stale closures
       const currentFinancialState = {
         balance: parseFloat(localStorage.getItem('fin_balance') || '0'),
         transactions: JSON.parse(localStorage.getItem('fin_transactions') || '[]'),
@@ -447,10 +597,7 @@ export default function App() {
       }
 
       if (result && result.success) {
-        // Ejecutar en React
         handleRegisterParsedTransaction(result);
-        
-        // Responder en Telegram
         await sendTelegramMessage(msg.token, msg.chatId, `🤖 *Aura AI:*\n\n${result.replyMessage}`);
       } else {
         await sendTelegramMessage(msg.token, msg.chatId, 
@@ -473,7 +620,6 @@ export default function App() {
     setTelegramStatus({ status: 'inactive', message: 'Detenido por el usuario.' });
   };
 
-  // Global Context Packet for Advisor
   const financialState = {
     balance,
     transactions,
@@ -557,6 +703,7 @@ export default function App() {
             onAddFriendDebt={handleAddFriendDebt}
             onRemoveFriendDebt={handleRemoveFriendDebt}
             onPayFriendDebt={handlePayFriendDebt}
+            onProcessMonthlyBilling={handleProcessMonthlyBilling} // NUEVO: Callback de liquidación
           />
         )}
 

@@ -1,4 +1,4 @@
-// Servicio de procesamiento de lenguaje natural para transacciones financieras en español
+// Servicio de procesamiento de lenguaje natural para transacciones financieras en español (Con soporte de compras diferidas)
 
 /**
  * Normaliza y limpia texto en español
@@ -23,11 +23,12 @@ export function parseTransactionTextLocal(text, financialState) {
     category: 'Otros',
     description: '',
     targetName: '',
+    installments: 1,      // NUEVO: Número de cuotas (por defecto 1)
+    interestRate: 0,      // NUEVO: Tasa de interés mensual (por defecto 0)
     replyMessage: ''
   };
 
   // 1. Extraer Monto
-  // Busca números como 15.000, 15000, 15k, $15000
   const amountRegex = /(?:(?:\$|usd|eur|cop)?\s*)(\d+(?:\.\d{3})*(?:,\d+)?)(?:\s*(?:k|mil))?/i;
   const matchAmount = norm.match(amountRegex);
   
@@ -35,14 +36,12 @@ export function parseTransactionTextLocal(text, financialState) {
     let numStr = matchAmount[1].replace(/\./g, '').replace(',', '.');
     let amount = parseFloat(numStr);
     
-    // Si contiene 'k' o 'mil' al final del número (ej: 15k, 15 mil)
     const afterAmount = norm.substring(matchAmount.index + matchAmount[0].length);
     if (/^\s*(k|mil)\b/i.test(afterAmount) || /k\b/i.test(matchAmount[0])) {
       if (amount < 1000) amount *= 1000;
     }
     result.amount = amount;
   } else {
-    // Buscar cualquier número suelto si falló el regex principal
     const fallbackNumbers = norm.match(/\d+/);
     if (fallbackNumbers) {
       result.amount = parseFloat(fallbackNumbers[0]);
@@ -56,12 +55,25 @@ export function parseTransactionTextLocal(text, financialState) {
     };
   }
 
+  // NUEVO: Extraer Cuotas (ej: "a 12 cuotas", "a 6 meses")
+  const installmentsRegex = /\ba\s*(\d+)\s*(?:cuotas|meses)\b/i;
+  const matchInstallments = norm.match(installmentsRegex);
+  if (matchInstallments) {
+    result.installments = parseInt(matchInstallments[1], 10);
+  }
+
+  // NUEVO: Extraer Tasa de Interés (ej: "con interes del 2.5%", "con 2% de interes", "tasa del 1.8%")
+  const interestRegex = /(?:interes\s*(?:del)?\s*|tasa\s*(?:del)?\s*|con\s*)(\d+(?:\.\d+)?)\s*%/i;
+  const matchInterest = norm.match(interestRegex);
+  if (matchInterest) {
+    result.interestRate = parseFloat(matchInterest[1]);
+  }
+
   // 2. Identificar el tipo de operación y destinatarios (Tarjetas, Créditos, Amigos)
   const cards = financialState?.cards || [];
   const vehicleLoans = financialState?.vehicleLoans || [];
   const friends = financialState?.friends || [];
 
-  // Buscar coincidencia de tarjetas
   let foundCard = null;
   for (const card of cards) {
     if (norm.includes(normalizeText(card.name)) || (card.name.toLowerCase() === 'visa' && norm.includes('visa')) || (card.name.toLowerCase() === 'mastercard' && norm.includes('mastercard'))) {
@@ -70,7 +82,6 @@ export function parseTransactionTextLocal(text, financialState) {
     }
   }
 
-  // Buscar coincidencia de créditos de vehículo
   let foundVehicle = null;
   for (const loan of vehicleLoans) {
     if (norm.includes(normalizeText(loan.name)) || norm.includes('carro') || norm.includes('vehiculo') || norm.includes('auto')) {
@@ -79,7 +90,6 @@ export function parseTransactionTextLocal(text, financialState) {
     }
   }
 
-  // Buscar coincidencia de amigos
   let foundFriend = null;
   for (const friend of friends) {
     if (norm.includes(normalizeText(friend.name))) {
@@ -101,13 +111,11 @@ export function parseTransactionTextLocal(text, financialState) {
       result.category = 'Transporte';
       result.description = `Pago cuota Crédito Vehículo: ${foundVehicle.name}`;
     } else if (foundFriend) {
-      // Si dice "Le pagué a Juan" es que le estoy devolviendo dinero
       result.type = 'friend_payback';
       result.targetName = foundFriend.name;
       result.category = 'Otros';
       result.description = `Pago de deuda a ${foundFriend.name}`;
     } else {
-      // Pago general de tarjeta o cuota si no se especifica el nombre exacto
       if (norm.includes('tarjeta')) {
         result.type = 'card_payment';
         result.targetName = cards[0]?.name || '';
@@ -137,7 +145,6 @@ export function parseTransactionTextLocal(text, financialState) {
     result.category = 'Ingresos';
     result.description = 'Ingreso de dinero';
   } else {
-    // Por defecto es un gasto
     result.type = 'expense';
     if (foundCard) {
       result.targetName = foundCard.name;
@@ -167,24 +174,28 @@ export function parseTransactionTextLocal(text, financialState) {
   }
 
   // 4. Perfeccionar descripción
-  // Quitar el monto y verbos comunes de la descripción original
-  let descRaw = text.replace(amountRegex, '').replace(/\b(gaste|pague|recibi|gane|preste|abone|ingreso|gasto|comprando|compre|con la|con mi|en mi)\b/gi, '').trim();
+  let descRaw = text.replace(amountRegex, '')
+    .replace(installmentsRegex, '')
+    .replace(interestRegex, '')
+    .replace(/\b(gaste|pague|recibi|gane|preste|abone|ingreso|gasto|comprando|compre|con la|con mi|en mi)\b/gi, '')
+    .trim();
   if (descRaw.length > 3) {
-    // Capitalizar primera letra
     result.description = descRaw.charAt(0).toUpperCase() + descRaw.slice(1);
   }
 
   result.success = true;
 
-  // Formateador de moneda
   const formatMoney = (val) => new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 }).format(val);
-
-  // Crear mensaje de respuesta amigable en base al tipo de operación
   const formattedAmount = formatMoney(result.amount);
+
   switch (result.type) {
     case 'expense':
       if (result.targetName) {
-        result.replyMessage = `✅ Registrado gasto de ${formattedAmount} en "${result.category}" (${result.description}) pagado con tu tarjeta de crédito ${result.targetName}.`;
+        if (result.installments > 1) {
+          result.replyMessage = `✅ Registrado gasto diferido de ${formattedAmount} en "${result.category}" (${result.description}) con tarjeta ${result.targetName} a ${result.installments} cuotas${result.interestRate > 0 ? ` con ${result.interestRate}% de interés` : ''}.`;
+        } else {
+          result.replyMessage = `✅ Registrado gasto de ${formattedAmount} en "${result.category}" (${result.description}) pagado con tu tarjeta ${result.targetName}.`;
+        }
       } else {
         result.replyMessage = `✅ Registrado gasto de ${formattedAmount} en "${result.category}" (${result.description}).`;
       }
@@ -247,17 +258,18 @@ Categorías válidas de gastos: "Alimentación", "Transporte", "Entretenimiento"
 Tipos de operación válidos:
 - "expense": Un gasto común (se resta del saldo disponible, a menos que sea con tarjeta de crédito, en cuyo caso aumenta el saldo utilizado de la tarjeta).
 - "income": Un ingreso de dinero (se suma al saldo disponible).
-- "card_payment": El usuario paga/abona a su tarjeta de crédito (resta de su saldo disponible y disminuye la deuda de la tarjeta).
-- "loan_payment": El usuario paga la cuota de su crédito de vehículo (resta de su saldo disponible y disminuye el saldo pendiente del crédito).
-- "friend_lend": El usuario le presta dinero a un amigo (se resta del saldo disponible y crea/aumenta una cuenta por cobrar).
-- "friend_borrow": Un amigo le presta dinero al usuario (se suma al saldo disponible y crea/aumenta una cuenta por pagar).
-- "friend_payback": El usuario le paga/devuelve dinero que le debía a un amigo (resta del saldo disponible y disminuye la cuenta por pagar).
-- "friend_receive_payback": Un amigo le paga/devuelve al usuario dinero que le debía (suma al saldo disponible y disminuye la cuenta por cobrar).
+- "card_payment": El usuario paga/abona a su tarjeta de crédito.
+- "loan_payment": El usuario paga la cuota de su crédito de vehículo.
+- "friend_lend": El usuario le presta dinero a un amigo.
+- "friend_borrow": Un amigo le presta dinero al usuario.
+- "friend_payback": El usuario le devuelve dinero a un amigo.
+- "friend_receive_payback": Un amigo le devuelve dinero al usuario.
 
 INSTRUCCIONES EXTRA:
-1. Si el usuario menciona una tarjeta de crédito (ej. "Visa", "tarjeta", "Mastercard") o a un amigo, asócialo al nombre de tarjeta o amigo más cercano que tenga registrado en su estado financiero. Si no existe, pon el nombre sugerido en "targetName".
-2. Si el texto no representa una transacción financiera legible, pon "success": false.
-3. Devuelve una respuesta JSON estrictamente con la estructura indicada abajo, sin añadir explicaciones fuera del JSON.
+1. Si el usuario menciona una tarjeta de crédito o a un amigo, asócialo al nombre registrado. Si no existe, pon el nombre sugerido en "targetName".
+2. Si la compra es con tarjeta de crédito y especifica diferir a cuotas (ej: "a 12 cuotas", "a 6 meses"), extrae el número de cuotas en "installments" y la tasa de interés mensual (si la menciona, ej: "interés del 2.1%") en "interestRate".
+3. Si el texto no representa una transacción, pon "success": false.
+4. Devuelve una respuesta JSON estrictamente con la estructura indicada abajo, sin añadir texto externo.
 
 ESTRUCTURA DE RESPUESTA REQUERIDA (JSON):
 {
@@ -267,7 +279,9 @@ ESTRUCTURA DE RESPUESTA REQUERIDA (JSON):
   "category": "NombreCategoria",
   "description": "concepto claro y corto",
   "targetName": "Nombre exacto de la tarjeta de crédito, crédito de vehículo o amigo (si aplica)",
-  "replyMessage": "Un mensaje corto de confirmación súper amigable y dinámico en español, comentando el efecto financiero."
+  "installments": number (por defecto 1),
+  "interestRate": number (tasa mensual %, ej: 2.1. Por defecto 0),
+  "replyMessage": "Un mensaje corto de confirmación súper amigable y dinámico en español, comentando el efecto financiero y cuotas si aplica."
 }`;
 
   try {
@@ -298,31 +312,33 @@ ESTRUCTURA DE RESPUESTA REQUERIDA (JSON):
     console.error("Error calling Gemini API:", error);
   }
 
-  // Fallback a local si hay error en la llamada o parseo de Gemini
   return parseTransactionTextLocal(text, financialState);
 }
 
 /**
  * Chat interactivo con el asesor financiero
- * Recibe el historial de chat y el estado financiero actual del usuario para dar consejos detallados
  */
 export async function getFinancialAdvisorResponse(chatHistory, apiKey, financialState) {
   if (!apiKey) {
     return "⚠️ Para recibir análisis financieros personalizados y de nivel profesional con Inteligencia Artificial, configura tu Gemini API Key en los Ajustes de la aplicación. \n\nPor el momento, te recomiendo mantener bajo control el cupo utilizado de tus tarjetas de crédito y programar abonos a tus deudas activas.";
   }
 
-  const cardsList = (financialState?.cards || []).map(c => `- Tarjeta ${c.name}: Límite de ${c.limit}, Deuda actual de ${c.balance}, Día de corte el ${c.cutoffDay}, Día de pago el ${c.paymentDay}`).join('\n');
+  const cardsList = (financialState?.cards || []).map(c => {
+    const deferredList = (c.deferredPurchases || []).map(d => `  - Compra deferred: ${d.description}, Saldo: ${d.amount}, Cuotas restantes: ${d.remainingInstallments}, Interés: ${d.interestRate}%`).join('\n');
+    return `- Tarjeta ${c.name}: Límite: ${c.limit}, Deuda actual: ${c.balance}, Corte: Día ${c.cutoffDay}, Pago: Día ${c.paymentDay}\n${deferredList || '  No tiene compras diferidas.'}`;
+  }).join('\n');
+  
   const vehiclesList = (financialState?.vehicleLoans || []).map(v => `- Crédito de ${v.name}: Saldo pendiente de ${v.balance}, Cuota mensual de ${v.monthlyPayment}, Tasa de ${v.interestRate}%`).join('\n');
   const friendsList = (financialState?.friends || []).map(f => `- Con ${f.name}: Tipo "${f.type === 'por_cobrar' ? 'Él me debe' : 'Yo le debo'}", Saldo de ${f.balance}`).join('\n');
-  const transactionsList = (financialState?.transactions || []).slice(0, 30).map(t => `- [${t.date}] [${t.type}] ${t.category}: $${t.amount} (${t.description})`).join('\n');
+  const transactionsList = (financialState?.transactions || []).slice(0, 30).map(t => `- [${t.date}] [${t.type}] ${t.category}: $${t.amount} (${t.description}) ${t.installments > 1 ? `(A ${t.installments} cuotas)` : ''}`).join('\n');
   const currentBalance = financialState?.balance || 0;
 
   const systemInstructions = `Actúa como Aura, una asesora financiera inteligente, experta en finanzas personales, reducción de deudas y optimización del dinero en español.
-Tu tono es motivador, profesional, claro y empático. Usa emojis de manera sutil para hacer el texto más amigable y estructurado.
+Tu tono es motivador, profesional, claro y empático.
 
 ESTADO FINANCIERO DEL USUARIO EN TIEMPO REAL:
 - Saldo Disponible en Débito/Efectivo: $${currentBalance}
-- Tarjetas de Crédito Activas:
+- Tarjetas de Crédito Activas (con sus compras diferidas a cuotas si tienen):
 ${cardsList || 'Ninguna tarjeta configurada.'}
 - Créditos de Vehículo Activos:
 ${vehiclesList || 'Ningún crédito de vehículo configurado.'}
@@ -334,16 +350,14 @@ ${transactionsList || 'Sin transacciones recientes.'}
 INSTRUCCIONES DE RESPUESTA:
 1. Responde a la pregunta del usuario analizando con detalle y precisión matemática su estado financiero.
 2. Da consejos accionables de cómo optimizar su saldo, ahorrar, pagar menos intereses, amortizar créditos o cobrar deudas.
-3. Si el usuario te pregunta sobre sus deudas de amigos, tarjetas o cuotas del carro, dale cifras exactas basadas en su estado.
-4. Mantén las respuestas fluidas, claras y bien estructuradas en markdown, sin ser excesivamente largas (máximo 3-4 párrafos o listas cortas).`;
+3. Si el usuario te pregunta sobre sus compras diferidas a cuotas, explícale la cuota mensual aproximada y el efecto de los intereses (utilizando el interés mensual de cada tarjeta si existe).
+4. Mantén las respuestas fluidas, claras y bien estructuradas en markdown, sin ser excesivamente largas.`;
 
   try {
     const apiContents = [
       { role: "user", parts: [{ text: systemInstructions }] }
     ];
 
-    // Mapear historial al formato de Gemini API
-    // Gemini roles: "user" y "model"
     chatHistory.forEach(msg => {
       apiContents.push({
         role: msg.sender === 'user' ? 'user' : 'model',
@@ -363,7 +377,7 @@ INSTRUCCIONES DE RESPUESTA:
     });
 
     if (!response.ok) {
-      throw new Error(`HTTP Error: ${response.status}`);
+      throw new Error("HTTP Error");
     }
 
     const data = await response.json();
@@ -373,7 +387,7 @@ INSTRUCCIONES DE RESPUESTA:
       return responseText;
     }
   } catch (error) {
-    console.error("Error getting AI advisor response:", error);
+    console.error(error);
     return "Lo siento, tuve un problema al conectarme con la IA de Gemini. Por favor, verifica tu API Key y tu conexión de red.";
   }
 
