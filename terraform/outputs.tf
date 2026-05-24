@@ -8,3 +8,14 @@ output "static_web_app_api_key" {
   description = "El token de despliegue necesario para subir el build desde GitHub Actions o Azure Pipelines"
   sensitive   = true
 }
+
+output "cosmosdb_endpoint" {
+  value       = azurerm_cosmosdb_account.cosmos_account.endpoint
+  description = "El Endpoint de conexión de tu base de datos Azure Cosmos DB"
+}
+
+output "cosmosdb_primary_key" {
+  value       = azurerm_cosmosdb_account.cosmos_account.primary_key
+  description = "La Clave Principal de tu base de datos Azure Cosmos DB"
+  sensitive   = true
+}

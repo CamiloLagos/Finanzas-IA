@@ -1,7 +1,7 @@
 import React from 'react';
-import { Wallet, CreditCard, Car, Users, TrendingUp, TrendingDown, DollarSign } from 'lucide-react';
+import { Wallet, CreditCard, Car, Users, TrendingUp, TrendingDown, DollarSign, Landmark, ArrowUpRight } from 'lucide-react';
 
-export default function Dashboard({ transactions, cards, vehicleLoans, friends, balance }) {
+export default function Dashboard({ transactions, cards, vehicleLoans, friends, balance, fixedSalary, onAddTransaction }) {
   
   // Format money helper
   const formatMoney = (val) => new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 }).format(val);
@@ -58,7 +58,6 @@ export default function Dashboard({ transactions, cards, vehicleLoans, friends, 
     const startPercent = accumulatedPercent;
     accumulatedPercent += percent;
 
-    // Convert percent to coordinates for SVG path (donut slice)
     const getCoordinatesForPercent = (p) => {
       const x = Math.cos(2 * Math.PI * p);
       const y = Math.sin(2 * Math.PI * p);
@@ -69,8 +68,6 @@ export default function Dashboard({ transactions, cards, vehicleLoans, friends, 
     const [endX, endY] = getCoordinatesForPercent(accumulatedPercent);
     const largeArcFlag = percent > 0.5 ? 1 : 0;
 
-    // Path command: Move to center (0,0), Line to start, Arc to end, Close path
-    // For donut we'll draw it on radius 100, then overlay a inner circle to mask it
     const pathData = totalCatExpenses > 0 && percent < 1
       ? `M ${startX * 80} ${startY * 80} A 80 80 0 ${largeArcFlag} 1 ${endX * 80} ${endY * 80} L 0 0`
       : totalCatExpenses > 0 && percent >= 1
@@ -83,6 +80,24 @@ export default function Dashboard({ transactions, cards, vehicleLoans, friends, 
       percent: (percent * 100).toFixed(1)
     };
   });
+
+  const handleRegisterSalary = () => {
+    if (!fixedSalary || fixedSalary <= 0) return;
+    
+    onAddTransaction({
+      id: Date.now().toString(),
+      type: 'income',
+      amount: fixedSalary,
+      category: 'Ingresos',
+      description: 'Pago Salario Fijo',
+      date: new Date().toISOString().split('T')[0],
+      targetName: '',
+      installments: 1,
+      interestRate: 0
+    });
+
+    alert(`¡Salario de ${formatMoney(fixedSalary)} registrado con éxito en tu Saldo Disponible!`);
+  };
 
   return (
     <div style={{ animation: 'slideIn 0.3s cubic-bezier(0.4, 0, 0.2, 1)' }}>
@@ -101,7 +116,7 @@ export default function Dashboard({ transactions, cards, vehicleLoans, friends, 
             </div>
             <div className="stat-footer">
               <DollarSign size={14} />
-              <span>Saldo disponible + cuentas amigos - deudas</span>
+              <span>Saldo disponible + deudas amigos - pasivos</span>
             </div>
           </div>
         </div>
@@ -152,8 +167,42 @@ export default function Dashboard({ transactions, cards, vehicleLoans, friends, 
         </div>
       </div>
 
+      {/* NUEVO: Banner de Salario Fijo */}
+      {fixedSalary > 0 && (
+        <div className="glass-card" style={{ 
+          marginBottom: '30px', 
+          background: 'linear-gradient(135deg, rgba(0, 242, 254, 0.05) 0%, rgba(127, 0, 255, 0.05) 100%)', 
+          border: '1px solid rgba(0, 242, 254, 0.15)',
+          padding: '20px',
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          flexWrap: 'wrap',
+          gap: '15px'
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '15px' }}>
+            <div style={{ background: 'rgba(0, 242, 254, 0.15)', padding: '10px', borderRadius: '12px', color: 'var(--color-teal)' }}>
+              <Landmark size={24} />
+            </div>
+            <div>
+              <h4 style={{ fontSize: '15px', fontWeight: '700' }}>Salario Mensual Recurrente</h4>
+              <p style={{ fontSize: '12.5px', color: 'var(--text-muted)' }}>
+                Tienes un salario fijo mensual de <strong>{formatMoney(fixedSalary)}</strong> configurado.
+              </p>
+            </div>
+          </div>
+          <button 
+            className="btn btn-primary" 
+            style={{ display: 'flex', alignItems: 'center', gap: '8px' }}
+            onClick={handleRegisterSalary}
+          >
+            <ArrowUpRight size={16} /> Registrar Pago de Nómina
+          </button>
+        </div>
+      )}
+
       <div className="dashboard-grid">
-        {/* Visual Charts & Category breakdown */}
+        {/* Visual Charts */}
         <div className="glass-card">
           <h3 style={{ marginBottom: '20px', display: 'flex', alignItems: 'center', gap: '8px' }}>
             <TrendingDown size={18} color="var(--color-teal)" />
@@ -166,7 +215,6 @@ export default function Dashboard({ transactions, cards, vehicleLoans, friends, 
             </div>
           ) : (
             <div className="donut-chart-container">
-              {/* Custom SVG Donut Chart */}
               <div style={{ position: 'relative', width: '220px', height: '220px' }}>
                 <svg width="220" height="220" viewBox="-100 -100 200 200" style={{ transform: 'rotate(-90deg)' }}>
                   {donutSlices.map((slice, index) => (
@@ -177,10 +225,8 @@ export default function Dashboard({ transactions, cards, vehicleLoans, friends, 
                       style={{ transition: 'all 0.3s' }}
                     />
                   ))}
-                  {/* Outer circle mask to make it a donut */}
                   <circle cx="0" cy="0" r="50" fill="var(--bg-secondary)" />
                 </svg>
-                {/* Center Label */}
                 <div style={{
                   position: 'absolute',
                   top: '50%',
@@ -194,7 +240,6 @@ export default function Dashboard({ transactions, cards, vehicleLoans, friends, 
                 </div>
               </div>
 
-              {/* Legend List */}
               <div className="legend-list">
                 {donutSlices.map((slice, index) => (
                   <div key={index} className="legend-item">
@@ -207,7 +252,7 @@ export default function Dashboard({ transactions, cards, vehicleLoans, friends, 
             </div>
           )}
 
-          {/* Simple Income vs Expense SVG Bar Chart */}
+          {/* Flow Chart */}
           <div style={{ marginTop: '40px' }}>
             <h3 style={{ marginBottom: '20px', display: 'flex', alignItems: 'center', gap: '8px' }}>
               <TrendingUp size={18} color="var(--color-green)" />
@@ -246,12 +291,10 @@ export default function Dashboard({ transactions, cards, vehicleLoans, friends, 
         <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
           {/* Credit Cards list preview */}
           <div className="glass-card" style={{ padding: '20px' }}>
-            <div className="flex-between" style={{ marginBottom: '15px' }}>
-              <h3 style={{ fontSize: '16px', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <CreditCard size={18} color="var(--color-purple)" />
-                Tarjetas de Crédito
-              </h3>
-            </div>
+            <h3 style={{ fontSize: '16px', display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '15px' }}>
+              <CreditCard size={18} color="var(--color-purple)" />
+              Tarjetas de Crédito
+            </h3>
             {cards.length === 0 ? (
               <p style={{ color: 'var(--text-dark)', fontSize: '13px' }}>No hay tarjetas configuradas.</p>
             ) : (

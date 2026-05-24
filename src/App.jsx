@@ -8,9 +8,11 @@ import IntegrationPanel from './components/IntegrationPanel';
 import Settings from './components/Settings';
 import { startTelegramPolling, stopTelegramPolling, sendTelegramMessage } from './services/telegramBot';
 import { parseTransactionTextLocal, parseTransactionTextGemini } from './services/aiParser';
+import { saveStateToCosmos } from './services/cosmosSync';
 
 export default function App() {
   const [activeTab, setActiveTab] = useState('dashboard');
+  const [initialLoadDone, setInitialLoadDone] = useState(false);
   
   // Financial State
   const [balance, setBalance] = useState(0);
@@ -18,12 +20,18 @@ export default function App() {
   const [cards, setCards] = useState([]);
   const [vehicleLoans, setVehicleLoans] = useState([]);
   const [friends, setFriends] = useState([]);
+  const [fixedSalary, setFixedSalary] = useState(0); // NUEVO: Salario fijo mensual
   
   // Settings / Keys
   const [geminiApiKey, setGeminiApiKey] = useState('');
   const [telegramToken, setTelegramToken] = useState('');
   const [telegramStatus, setTelegramStatus] = useState({ status: 'inactive', message: '' });
   
+  // Estados de Cosmos DB
+  const [cosmosEndpoint, setCosmosEndpoint] = useState('');
+  const [cosmosKey, setCosmosKey] = useState('');
+  const [cosmosUserId, setCosmosUserId] = useState('hogar-lagos');
+
   // Chat History
   const [chatHistory, setChatHistory] = useState([]);
 
@@ -37,6 +45,12 @@ export default function App() {
     const localGeminiKey = localStorage.getItem('fin_gemini_key');
     const localTelegramToken = localStorage.getItem('fin_telegram_token');
     const localChatHistory = localStorage.getItem('fin_chat_history');
+    const localFixedSalary = localStorage.getItem('fin_fixed_salary');
+    
+    // Cosmos DB configs
+    const localCosmosEndpoint = localStorage.getItem('fin_cosmos_endpoint') || '';
+    const localCosmosKey = localStorage.getItem('fin_cosmos_key') || '';
+    const localCosmosUserId = localStorage.getItem('fin_cosmos_user_id') || 'hogar-lagos';
 
     if (localBalance) setBalance(parseFloat(localBalance));
     if (localTransactions) setTransactions(JSON.parse(localTransactions));
@@ -46,44 +60,104 @@ export default function App() {
     if (localGeminiKey) setGeminiApiKey(localGeminiKey);
     if (localTelegramToken) setTelegramToken(localTelegramToken);
     if (localChatHistory) setChatHistory(JSON.parse(localChatHistory));
+    if (localFixedSalary) setFixedSalary(parseFloat(localFixedSalary));
+    
+    setCosmosEndpoint(localCosmosEndpoint);
+    setCosmosKey(localCosmosKey);
+    setCosmosUserId(localCosmosUserId);
     
     if (!localBalance && !localTransactions && !localCards && !localVehicles && !localFriends) {
       loadDemoData();
     }
+    
+    setInitialLoadDone(true);
   }, []);
 
   // 2. SAVE STATE TO LOCALSTORAGE WHEN IT CHANGES
   useEffect(() => {
+    if (!initialLoadDone) return;
     localStorage.setItem('fin_balance', balance.toString());
-  }, [balance]);
+  }, [balance, initialLoadDone]);
 
   useEffect(() => {
+    if (!initialLoadDone) return;
     localStorage.setItem('fin_transactions', JSON.stringify(transactions));
-  }, [transactions]);
+  }, [transactions, initialLoadDone]);
 
   useEffect(() => {
+    if (!initialLoadDone) return;
     localStorage.setItem('fin_cards', JSON.stringify(cards));
-  }, [cards]);
+  }, [cards, initialLoadDone]);
 
   useEffect(() => {
+    if (!initialLoadDone) return;
     localStorage.setItem('fin_vehicles', JSON.stringify(vehicleLoans));
-  }, [vehicleLoans]);
+  }, [vehicleLoans, initialLoadDone]);
 
   useEffect(() => {
+    if (!initialLoadDone) return;
     localStorage.setItem('fin_friends', JSON.stringify(friends));
-  }, [friends]);
+  }, [friends, initialLoadDone]);
 
   useEffect(() => {
+    if (!initialLoadDone) return;
     localStorage.setItem('fin_gemini_key', geminiApiKey);
-  }, [geminiApiKey]);
+  }, [geminiApiKey, initialLoadDone]);
 
   useEffect(() => {
+    if (!initialLoadDone) return;
     localStorage.setItem('fin_telegram_token', telegramToken);
-  }, [telegramToken]);
+  }, [telegramToken, initialLoadDone]);
 
   useEffect(() => {
+    if (!initialLoadDone) return;
     localStorage.setItem('fin_chat_history', JSON.stringify(chatHistory));
-  }, [chatHistory]);
+  }, [chatHistory, initialLoadDone]);
+
+  useEffect(() => {
+    if (!initialLoadDone) return;
+    localStorage.setItem('fin_fixed_salary', fixedSalary.toString());
+  }, [fixedSalary, initialLoadDone]);
+
+  // Persistir configs de Cosmos DB
+  useEffect(() => {
+    if (!initialLoadDone) return;
+    localStorage.setItem('fin_cosmos_endpoint', cosmosEndpoint);
+  }, [cosmosEndpoint, initialLoadDone]);
+
+  useEffect(() => {
+    if (!initialLoadDone) return;
+    localStorage.setItem('fin_cosmos_key', cosmosKey);
+  }, [cosmosKey, initialLoadDone]);
+
+  useEffect(() => {
+    if (!initialLoadDone) return;
+    localStorage.setItem('fin_cosmos_user_id', cosmosUserId);
+  }, [cosmosUserId, initialLoadDone]);
+
+  // Sincronización automática de cambios a Cosmos DB (Debounced 1.2s)
+  useEffect(() => {
+    if (!initialLoadDone) return;
+    if (!cosmosEndpoint || !cosmosKey || !cosmosUserId) return;
+
+    const timer = setTimeout(async () => {
+      console.log("Sincronizando cambios con Azure Cosmos DB...");
+      try {
+        await saveStateToCosmos(cosmosEndpoint, cosmosKey, cosmosUserId, {
+          balance,
+          transactions,
+          cards,
+          vehicleLoans,
+          friends,
+          fixedSalary // Guardar salario fijo en Cosmos DB
+        });
+      } catch (err) {
+        console.error("Auto-sync error Cosmos DB:", err);
+      }
+    }, 1200);
+
+    return () => clearTimeout(timer);
+  }, [balance, transactions, cards, vehicleLoans, friends, fixedSalary, cosmosEndpoint, cosmosKey, cosmosUserId, initialLoadDone]);
 
   // Clean up Telegram Bot Polling when app unmounts
   useEffect(() => {
@@ -95,6 +169,7 @@ export default function App() {
   // DEMO DATA SEEDER
   const loadDemoData = () => {
     const demoBalance = 2450000;
+    const demoSalary = 3800000; // Salario demo
     const demoCards = [
       { 
         name: 'Visa Bancolombia', 
@@ -131,7 +206,7 @@ export default function App() {
       { name: 'Carlos Gómez', type: 'por_pagar', balance: 80000 }
     ];
     const demoTransactions = [
-      { id: '1', type: 'income', amount: 3200000, category: 'Ingresos', description: 'Pago Nómina Mayo', date: '2026-05-15', targetName: '', installments: 1, interestRate: 0 },
+      { id: '1', type: 'income', amount: 3800000, category: 'Ingresos', description: 'Pago Salario Fijo', date: '2026-05-15', targetName: '', installments: 1, interestRate: 0 },
       { id: '2', type: 'expense', amount: 150000, category: 'Alimentación', description: 'Mercado de la semana', date: '2026-05-16', targetName: '', installments: 1, interestRate: 0 },
       { id: '3', type: 'expense', amount: 650000, category: 'Otros', description: 'Compra tiquetes aéreos', date: '2026-05-18', targetName: 'Visa Bancolombia', installments: 6, interestRate: 1.8 },
       { id: '4', type: 'expense', amount: 120000, category: 'Compras', description: 'Zapatos deportivos', date: '2026-05-19', targetName: 'Mastercard Nubank', installments: 1, interestRate: 0 },
@@ -140,18 +215,20 @@ export default function App() {
     ];
 
     setBalance(demoBalance);
+    setFixedSalary(demoSalary);
     setCards(demoCards);
     setVehicleLoans(demoVehicles);
     setFriends(demoFriends);
     setTransactions(demoTransactions);
     
     setChatHistory([
-      { sender: 'ai', text: '¡Hola! He cargado tus datos demo para que pruebes las deudas diferidas a cuotas.\n\nTienes una compra diferida en tu tarjeta Visa de unos tiquetes aéreos a 6 cuotas con 1.8% de interés. ¿En qué te puedo asesorar hoy?' }
+      { sender: 'ai', text: '¡Hola! He cargado tus datos demo para que pruebes las deudas diferidas a cuotas.\n\nTienes un salario fijo configurado de $3.800.000 COP y una compra diferida en tu tarjeta Visa. ¿En qué te puedo asesorar hoy?' }
     ]);
   };
 
   const clearAllData = () => {
     setBalance(0);
+    setFixedSalary(0);
     setTransactions([]);
     setCards([]);
     setVehicleLoans([]);
@@ -168,22 +245,27 @@ export default function App() {
     setCards(importedState.cards.map(c => ({ ...c, deferredPurchases: c.deferredPurchases || [] })));
     setVehicleLoans(importedState.vehicleLoans);
     setFriends(importedState.friends);
+    if (importedState.fixedSalary) setFixedSalary(importedState.fixedSalary);
     if (importedState.chatHistory) setChatHistory(importedState.chatHistory);
   };
 
-  // ADD MANUAL TRANSACTION CALLBACK (Updated with Installments)
+  const handleSaveCosmosConfig = (config) => {
+    setCosmosEndpoint(config.endpoint);
+    setCosmosKey(config.key);
+    setCosmosUserId(config.userId);
+  };
+
+  // ADD MANUAL TRANSACTION CALLBACK
   const handleAddTransaction = (tx) => {
     const installments = tx.installments || 1;
     const interestRate = tx.interestRate || 0;
 
     if (tx.type === 'expense') {
       if (tx.targetName) {
-        // Cargar a tarjeta de crédito
         setCards(prev => prev.map(c => {
           if (c.name === tx.targetName) {
             const updatedDeferred = [...(c.deferredPurchases || [])];
             
-            // Si tiene cuotas, registrarla en diferidos
             if (installments > 1) {
               updatedDeferred.push({
                 id: tx.id || Date.now().toString(),
@@ -205,15 +287,12 @@ export default function App() {
           return c;
         }));
       } else {
-        // Restar de saldo disponible en efectivo
         setBalance(prev => prev - tx.amount);
       }
     } else if (tx.type === 'income') {
-      // Sumar a saldo disponible
       setBalance(prev => prev + tx.amount);
     }
 
-    // Guardar transacción
     const txToSave = {
       ...tx,
       installments,
@@ -312,7 +391,7 @@ export default function App() {
     setTransactions(prev => [tx, ...prev]);
   };
 
-  // NEW: PROCESS MONTHLY CARD BILLING (Abono de Cuotas Diferidas)
+  // PROCESS MONTHLY CARD BILLING
   const handleProcessMonthlyBilling = (cardName) => {
     const card = cards.find(c => c.name === cardName);
     if (!card) return;
@@ -321,11 +400,9 @@ export default function App() {
     let totalInterestPaid = 0;
     const updatedDeferredPurchases = [];
 
-    // Calcular cuotas de compras diferidas
     (card.deferredPurchases || []).forEach(d => {
       const remaining = d.remainingInstallments;
       if (remaining > 0) {
-        // Calcular cuota del mes usando amortización fija de capital + intereses sobre saldo restante
         const principalMonth = d.amount / d.installments;
         const interestMonth = (d.amount - (principalMonth * (d.installments - remaining))) * (d.interestRate / 100);
         
@@ -345,7 +422,6 @@ export default function App() {
     const totalToPay = totalPrincipalPaid + totalInterestPaid;
     if (totalToPay <= 0) return;
 
-    // Actualizar balances
     setBalance(prev => Math.max(0, prev - totalToPay));
     setCards(prev => prev.map(c => 
       c.name === cardName ? {
@@ -355,7 +431,6 @@ export default function App() {
       } : c
     ));
 
-    // Guardar transacción
     const tx = {
       id: Date.now().toString(),
       type: 'card_payment',
@@ -475,7 +550,6 @@ export default function App() {
       interestRate: result.interestRate || 0
     };
 
-    // Aplicar lógica
     if (result.type === 'expense') {
       if (result.targetName) {
         setCards(prev => {
@@ -504,7 +578,6 @@ export default function App() {
               return c;
             });
           } else {
-            // Tarjeta nueva
             const newCard = {
               name: result.targetName,
               limit: 3000000,
@@ -587,7 +660,8 @@ export default function App() {
         transactions: JSON.parse(localStorage.getItem('fin_transactions') || '[]'),
         cards: JSON.parse(localStorage.getItem('fin_cards') || '[]'),
         vehicleLoans: JSON.parse(localStorage.getItem('fin_vehicles') || '[]'),
-        friends: JSON.parse(localStorage.getItem('fin_friends') || '[]')
+        friends: JSON.parse(localStorage.getItem('fin_friends') || '[]'),
+        fixedSalary: parseFloat(localStorage.getItem('fin_fixed_salary') || '0')
       };
 
       if (geminiApiKey) {
@@ -625,7 +699,8 @@ export default function App() {
     transactions,
     cards,
     vehicleLoans,
-    friends
+    friends,
+    fixedSalary
   };
 
   return (
@@ -685,6 +760,8 @@ export default function App() {
             vehicleLoans={vehicleLoans} 
             friends={friends} 
             balance={balance}
+            fixedSalary={fixedSalary} // Pasar salario fijo
+            onAddTransaction={handleAddTransaction} // Callback para registrar salario directo
           />
         )}
         
@@ -703,7 +780,7 @@ export default function App() {
             onAddFriendDebt={handleAddFriendDebt}
             onRemoveFriendDebt={handleRemoveFriendDebt}
             onPayFriendDebt={handlePayFriendDebt}
-            onProcessMonthlyBilling={handleProcessMonthlyBilling} // NUEVO: Callback de liquidación
+            onProcessMonthlyBilling={handleProcessMonthlyBilling}
           />
         )}
 
@@ -745,6 +822,14 @@ export default function App() {
             onClearAllData={clearAllData}
             onImportData={importData}
             financialState={financialState}
+            // Props de Cosmos DB
+            cosmosEndpoint={cosmosEndpoint}
+            cosmosKey={cosmosKey}
+            cosmosUserId={cosmosUserId}
+            onSaveCosmosConfig={handleSaveCosmosConfig}
+            // Props de Salario
+            fixedSalary={fixedSalary}
+            onSaveFixedSalary={(val) => setFixedSalary(val)}
           />
         )}
       </main>
