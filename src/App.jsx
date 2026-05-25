@@ -381,7 +381,10 @@ export default function App() {
                 
                 let debtToAdd = tx.amount;
                 if (installments > 1) {
-                  const remaining = calculateRemainingInstallments(finalDate, installments);
+                  const remaining = tx.remainingInstallments !== undefined && tx.remainingInstallments !== null
+                    ? tx.remainingInstallments
+                    : calculateRemainingInstallments(finalDate, installments);
+                  
                   if (remaining > 0) {
                     updatedDeferred.push({
                       id: tx.id || Date.now().toString(),
@@ -410,7 +413,10 @@ export default function App() {
             let debtToAdd = tx.amount;
             let deferredList = [];
             if (installments > 1) {
-              const remaining = calculateRemainingInstallments(finalDate, installments);
+              const remaining = tx.remainingInstallments !== undefined && tx.remainingInstallments !== null
+                ? tx.remainingInstallments
+                : calculateRemainingInstallments(finalDate, installments);
+              
               if (remaining > 0) {
                 deferredList.push({
                   id: tx.id || Date.now().toString(),

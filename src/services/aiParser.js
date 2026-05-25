@@ -457,6 +457,7 @@ export async function parseDocumentWithGemini(fileData, mimeType, isText, apiKey
         "targetName": "Nombre de la tarjeta (si aplica)",
         "date": "YYYY-MM-DD",
         "installments": number (por defecto 1),
+        "remainingInstallments": number (opcional: número de cuotas restantes por pagar. Si el extracto dice algo como "cuota 3 de 24" o "003/024", calcula las restantes incluyendo la actual: total - cuota_actual + 1, ej: 24 - 3 + 1 = 22 cuotas restantes),
         "interestRate": number (por defecto 0)
       }
     ]

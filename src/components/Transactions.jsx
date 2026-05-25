@@ -143,6 +143,7 @@ export default function Transactions({
         date: t.date || new Date().toISOString().split('T')[0],
         targetName: t.targetName || '',
         installments: t.installments || 1,
+        remainingInstallments: t.remainingInstallments,
         interestRate: t.interestRate || 0
       });
     });
