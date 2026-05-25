@@ -341,6 +341,25 @@ export default function App() {
   };
 
   // ADD MANUAL TRANSACTION CALLBACK
+  // AUXILIAR: Calcular cuotas restantes basadas en la diferencia de meses con la fecha actual
+  const calculateRemainingInstallments = (purchaseDateStr, totalInstallments) => {
+    const today = new Date();
+    const purchaseDate = new Date(purchaseDateStr);
+    if (isNaN(purchaseDate)) return totalInstallments;
+
+    const yearsDiff = today.getFullYear() - purchaseDate.getFullYear();
+    const monthsDiff = today.getMonth() - purchaseDate.getMonth();
+    const elapsedMonths = (yearsDiff * 12) + monthsDiff;
+
+    if (elapsedMonths <= 0) {
+      return totalInstallments;
+    }
+
+    const remaining = totalInstallments - elapsedMonths;
+    return Math.max(0, remaining);
+  };
+
+  // ADD MANUAL TRANSACTION CALLBACK
   const handleAddTransaction = (tx) => {
     const installments = tx.installments || 1;
     const interestRate = tx.interestRate || 0;
@@ -360,42 +379,61 @@ export default function App() {
               if (c.name.toLowerCase() === tx.targetName.toLowerCase()) {
                 const updatedDeferred = [...(c.deferredPurchases || [])];
                 
+                let debtToAdd = tx.amount;
                 if (installments > 1) {
-                  updatedDeferred.push({
-                    id: tx.id || Date.now().toString(),
-                    description: tx.description,
-                    amount: tx.amount,
-                    installments: installments,
-                    remainingInstallments: installments,
-                    interestRate: interestRate,
-                    date: finalDate
-                  });
+                  const remaining = calculateRemainingInstallments(finalDate, installments);
+                  if (remaining > 0) {
+                    updatedDeferred.push({
+                      id: tx.id || Date.now().toString(),
+                      description: tx.description,
+                      amount: tx.amount,
+                      installments: installments,
+                      remainingInstallments: remaining,
+                      interestRate: interestRate,
+                      date: finalDate
+                    });
+                    debtToAdd = (tx.amount / installments) * remaining;
+                  } else {
+                    debtToAdd = 0;
+                  }
                 }
 
                 return {
                   ...c,
-                  balance: c.balance + tx.amount,
+                  balance: c.balance + debtToAdd,
                   deferredPurchases: updatedDeferred
                 };
               }
               return c;
             });
           } else {
+            let debtToAdd = tx.amount;
+            let deferredList = [];
+            if (installments > 1) {
+              const remaining = calculateRemainingInstallments(finalDate, installments);
+              if (remaining > 0) {
+                deferredList.push({
+                  id: tx.id || Date.now().toString(),
+                  description: tx.description,
+                  amount: tx.amount,
+                  installments: installments,
+                  remainingInstallments: remaining,
+                  interestRate: interestRate,
+                  date: finalDate
+                });
+                debtToAdd = (tx.amount / installments) * remaining;
+              } else {
+                debtToAdd = 0;
+              }
+            }
+
             const newCard = {
               name: tx.targetName,
               limit: 3000000,
-              balance: tx.amount,
+              balance: debtToAdd,
               cutoffDay: 15,
               paymentDay: 30,
-              deferredPurchases: installments > 1 ? [{
-                id: tx.id || Date.now().toString(),
-                description: tx.description,
-                amount: tx.amount,
-                installments: installments,
-                remainingInstallments: installments,
-                interestRate: interestRate,
-                date: finalDate
-              }] : []
+              deferredPurchases: deferredList
             };
             return [...prev, newCard];
           }
