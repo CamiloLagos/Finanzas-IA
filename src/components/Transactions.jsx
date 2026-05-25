@@ -36,6 +36,7 @@ export default function Transactions({
   const [scanning, setScanning] = useState(false);
   const [scanError, setScanError] = useState('');
   const [previewTransactions, setPreviewTransactions] = useState([]);
+  const [ignorePayments, setIgnorePayments] = useState(true);
 
   // Handlers
   const handleFileChange = (e) => {
@@ -115,7 +116,7 @@ export default function Transactions({
         setPreviewTransactions(extracted.map((tx, idx) => ({
           ...tx,
           id: Date.now().toString() + idx,
-          checked: true
+          checked: ignorePayments ? (tx.type !== 'card_payment' && tx.type !== 'loan_payment') : true
         })));
       } else {
         setScanError("No se encontraron transacciones en el documento. Asegúrate de que los montos e ingresos/gastos estén legibles.");
@@ -377,6 +378,19 @@ export default function Transactions({
                   <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Soporta fotos (JPG/PNG), PDF, CSV o TXT</span>
                 </div>
               )}
+            </div>
+
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '14px', marginBottom: '12px', fontSize: '12px', color: 'var(--text-muted)' }}>
+              <input 
+                type="checkbox" 
+                id="ignore-payments-toggle"
+                checked={ignorePayments} 
+                onChange={(e) => setIgnorePayments(e.target.checked)}
+                style={{ cursor: 'pointer' }}
+              />
+              <label htmlFor="ignore-payments-toggle" style={{ cursor: 'pointer', userSelect: 'none', color: 'var(--text-muted)' }}>
+                Desmarcar abonos y pagos de deuda por defecto
+              </label>
             </div>
 
             {selectedFile && (

@@ -437,10 +437,10 @@ export async function parseDocumentWithGemini(fileData, mimeType, isText, apiKey
   Categorías válidas de gastos: "Alimentación", "Transporte", "Entretenimiento", "Servicios", "Compras", "Salud", "Educación", "Otros".
   
   Tipos de operación válidos:
-  - "expense": Gasto.
-  - "income": Ingreso.
-  - "card_payment": Pago de tarjeta.
-  - "loan_payment": Pago de cuota de vehículo.
+  - "expense": Gasto (compras, cargos, comisiones, retiros, compras diferidas).
+  - "income": Ingreso (salario, transferencias recibidas, devoluciones, intereses ganados).
+  - "card_payment": Pago de tarjeta (abonos, pagos realizados para disminuir el saldo de la tarjeta de crédito, usualmente identificados en el extracto como "Su pago", "Abono", "Pago recibido", "Pago por sucursal", etc.).
+  - "loan_payment": Pago de cuota de vehículo o crédito.
   
   INSTRUCCIONES:
   1. Si encuentras múltiples transacciones, extráelas todas.
