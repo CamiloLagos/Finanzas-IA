@@ -254,6 +254,13 @@ export default function Dashboard({
     .filter(o => !o.isPaid && o.type !== 'income')
     .reduce((acc, curr) => acc + curr.amount, 0);
 
+  const pendingInflow = obligations
+    .filter(o => !o.isPaid && o.type === 'income')
+    .reduce((acc, curr) => acc + curr.amount, 0);
+
+  const pendingOutflow = pendingObligationsAmount;
+  const projectedEndBalance = balance + pendingInflow - pendingOutflow;
+
   return (
     <div style={{ animation: 'slideIn 0.3s cubic-bezier(0.4, 0, 0.2, 1)' }}>
       
@@ -487,6 +494,74 @@ export default function Dashboard({
                 <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Total Gastado</span>
                 <div style={{ fontSize: '16px', fontWeight: '700', color: 'var(--color-red)', marginTop: '4px' }}>{formatMoney(monthlyExpenses)}</div>
               </div>
+            </div>
+          </div>
+
+          {/* Pronóstico de Flujo de Caja */}
+          <div style={{ marginTop: '25px', paddingTop: '20px', borderTop: '1px solid var(--card-border)' }}>
+            <h4 style={{ fontSize: '13.5px', marginBottom: '15px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+              <TrendingUp size={16} color="var(--color-teal)" />
+              Pronóstico de Fin de Mes
+            </h4>
+            
+            <div style={{ display: 'grid', gap: '10px', fontSize: '13px', marginBottom: '15px' }}>
+              <div className="flex-between">
+                <span style={{ color: 'var(--text-muted)' }}>Saldo Disponible actual:</span>
+                <span style={{ fontWeight: '600' }}>{formatMoney(balance)}</span>
+              </div>
+              <div className="flex-between">
+                <span style={{ color: 'var(--text-muted)' }}>(+) Ingresos por cobrar:</span>
+                <span style={{ fontWeight: '600', color: 'var(--color-green)' }}>{formatMoney(pendingInflow)}</span>
+              </div>
+              <div className="flex-between">
+                <span style={{ color: 'var(--text-muted)' }}>(-) Pagos pendientes:</span>
+                <span style={{ fontWeight: '600', color: 'var(--color-orange)' }}>{formatMoney(pendingOutflow)}</span>
+              </div>
+              <div className="flex-between" style={{ borderTop: '1px solid rgba(255,255,255,0.05)', paddingTop: '8px', marginTop: '4px', fontSize: '14px' }}>
+                <strong>Saldo Final Proyectado:</strong>
+                <strong style={{ color: projectedEndBalance >= 0 ? 'var(--color-green)' : 'var(--color-red)', fontSize: '15px' }}>
+                  {formatMoney(projectedEndBalance)}
+                </strong>
+              </div>
+            </div>
+
+            {/* Mensajes de Asesoría Contextual */}
+            <div style={{ 
+              padding: '12px', 
+              borderRadius: '10px', 
+              fontSize: '12px', 
+              lineHeight: '1.5',
+              background: projectedEndBalance < 0 
+                ? 'rgba(239, 68, 68, 0.05)' 
+                : projectedEndBalance < 200000 
+                  ? 'rgba(245, 158, 11, 0.05)' 
+                  : 'rgba(16, 185, 129, 0.05)',
+              border: `1px solid ${
+                projectedEndBalance < 0 
+                  ? 'rgba(239, 68, 68, 0.15)' 
+                  : projectedEndBalance < 200000 
+                    ? 'rgba(245, 158, 11, 0.15)' 
+                    : 'rgba(16, 185, 129, 0.15)'
+              }`,
+              color: projectedEndBalance < 0 
+                ? 'var(--color-red)' 
+                : projectedEndBalance < 200000 
+                  ? 'var(--color-orange)' 
+                  : 'var(--text-main)'
+            }}>
+              {projectedEndBalance < 0 ? (
+                <span>
+                  <strong>⚠️ Peligro de sobregiro:</strong> Tus obligaciones pendientes superan tu saldo disponible e ingresos por <strong>{formatMoney(Math.abs(projectedEndBalance))}</strong>. Te aconsejamos pausar gastos opcionales o refinanciar cuotas para evitar deudas de emergencia.
+                </span>
+              ) : projectedEndBalance < 200000 ? (
+                <span>
+                  <strong>⚠️ Flujo ajustado:</strong> Terminarás el mes con solo <strong>{formatMoney(projectedEndBalance)}</strong> libres. Evita gastos no planificados para no tener que recurrir a tarjetas de crédito.
+                </span>
+              ) : (
+                <span style={{ color: 'var(--text-main)' }}>
+                  <strong>✅ Excedente Proyectado:</strong> Terminarás el mes con un excedente de <strong style={{ color: 'var(--color-green)' }}>{formatMoney(projectedEndBalance)}</strong> libres. Dado que estás en proceso de salir de deudas, te sugerimos usar este excedente para hacer un <strong>abono extraordinario</strong> a la tarjeta de crédito o deuda con mayor tasa de interés (método avalancha) para ahorrar en intereses a largo plazo.
+                </span>
+              )}
             </div>
           </div>
         </div>
