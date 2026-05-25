@@ -16,6 +16,10 @@ function normalizeText(text) {
  */
 async function callGeminiAPI(apiKey, contents, generationConfig = {}) {
   const models = [
+    'gemini-3.5-flash',
+    'gemini-3.1-flash-lite',
+    'gemini-3-flash-preview',
+    'gemini-2.5-flash-lite',
     'gemini-1.5-flash',
     'gemini-1.5-flash-latest',
     'gemini-2.0-flash',
