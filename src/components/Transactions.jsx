@@ -36,7 +36,7 @@ export default function Transactions({
   const [scanning, setScanning] = useState(false);
   const [scanError, setScanError] = useState('');
   const [previewTransactions, setPreviewTransactions] = useState([]);
-  const [ignorePayments, setIgnorePayments] = useState(true);
+  const [ignorePayments, setIgnorePayments] = useState(false);
 
   // Handlers
   const handleFileChange = (e) => {
