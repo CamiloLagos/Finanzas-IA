@@ -190,9 +190,7 @@ export default function Dashboard({
         let cardInstallmentAmount = 0;
         deferredItems.forEach(item => {
           const principal = item.amount / item.installments;
-          const remainingVal = item.amount - (principal * (item.installments - item.remainingInstallments));
-          const interest = remainingVal * (item.interestRate / 100);
-          cardInstallmentAmount += principal + interest;
+          cardInstallmentAmount += principal;
         });
 
         // Buscar si ya se liquidó la tarjeta este mes

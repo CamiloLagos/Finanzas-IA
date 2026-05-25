@@ -104,11 +104,13 @@ export default function DebtsManager({
     const principal = purchase.amount / purchase.installments;
     // Intereses calculados sobre saldo pendiente
     const remainingVal = purchase.amount - (principal * (purchase.installments - purchase.remainingInstallments));
-    const interest = remainingVal * (purchase.interestRate / 100);
+    // Si la tasa es mayor a 5%, asumimos que es nominal/efectiva anual y la dividimos por 12
+    const monthlyRate = purchase.interestRate > 5 ? (purchase.interestRate / 12) : purchase.interestRate;
+    const interest = remainingVal * (monthlyRate / 100);
     return {
       principal,
       interest,
-      total: principal + interest
+      total: principal // La cuota mensual facturada de la compra diferida es solo el principal. El interés se maneja por aparte.
     };
   };
 

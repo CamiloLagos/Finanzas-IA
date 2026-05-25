@@ -554,17 +554,13 @@ export default function App() {
     if (!card) return;
 
     let totalPrincipalPaid = 0;
-    let totalInterestPaid = 0;
     const updatedDeferredPurchases = [];
 
     (card.deferredPurchases || []).forEach(d => {
       const remaining = d.remainingInstallments;
       if (remaining > 0) {
         const principalMonth = d.amount / d.installments;
-        const interestMonth = (d.amount - (principalMonth * (d.installments - remaining))) * (d.interestRate / 100);
-        
         totalPrincipalPaid += principalMonth;
-        totalInterestPaid += interestMonth;
 
         const nextRemaining = remaining - 1;
         if (nextRemaining > 0) {
@@ -576,7 +572,7 @@ export default function App() {
       }
     });
 
-    const totalToPay = totalPrincipalPaid + totalInterestPaid;
+    const totalToPay = totalPrincipalPaid;
     if (totalToPay <= 0) return;
 
     setBalance(prev => Math.max(0, prev - totalToPay));
