@@ -393,3 +393,96 @@ INSTRUCCIONES DE RESPUESTA:
 
   return "No pude obtener una respuesta de la IA en este momento.";
 }
+
+/**
+ * Analizador multimodal de documentos (recibos en imagen, extractos en PDF o archivos CSV/texto)
+ */
+export async function parseDocumentWithGemini(fileData, mimeType, isText, apiKey, financialState) {
+  if (!apiKey) {
+    throw new Error("Se requiere una API Key de Gemini.");
+  }
+
+  const cardsList = (financialState?.cards || []).map(c => `- ${c.name}`).join('\n');
+  
+  const prompt = `Analiza el documento adjunto (puede ser un extracto bancario, factura, recibo o CSV) y extrae todas las transacciones financieras que encuentres.
+  
+  ESTADO FINANCIERO:
+  - Tarjetas de crédito existentes para mapear si aplica:
+  ${cardsList || 'Ninguna'}
+  
+  Categorías válidas de gastos: "Alimentación", "Transporte", "Entretenimiento", "Servicios", "Compras", "Salud", "Educación", "Otros".
+  
+  Tipos de operación válidos:
+  - "expense": Gasto.
+  - "income": Ingreso.
+  - "card_payment": Pago de tarjeta.
+  - "loan_payment": Pago de cuota de vehículo.
+  
+  INSTRUCCIONES:
+  1. Si encuentras múltiples transacciones, extráelas todas.
+  2. Para cada transacción, determina el tipo, monto, categoría, descripción (concepto corto) y nombre de la tarjeta/crédito si aplica (mapeado de las existentes).
+  3. Establece la fecha de la transacción de forma lógica basada en el documento en formato YYYY-MM-DD. Si no tiene fecha, usa la fecha de hoy.
+  4. Devuelve la información estrictamente como un arreglo JSON con objetos transacciones, usando el siguiente esquema JSON:
+  {
+    "transactions": [
+      {
+        "type": "expense" | "income" | "card_payment" | "loan_payment",
+        "amount": number,
+        "category": "NombreCategoria",
+        "description": "concepto corto",
+        "targetName": "Nombre de la tarjeta (si aplica)",
+        "date": "YYYY-MM-DD",
+        "installments": number (por defecto 1),
+        "interestRate": number (por defecto 0)
+      }
+    ]
+  }
+  No incluyas explicaciones externas, markdown (ej. \`\`\`json), solo el JSON puro.`;
+
+  let parts = [];
+  if (isText) {
+    parts.push({ text: prompt + "\n\nCONTENIDO DEL ARCHIVO:\n" + fileData });
+  } else {
+    parts.push({
+      inlineData: {
+        mimeType: mimeType,
+        data: fileData // base64
+      }
+    });
+    parts.push({ text: prompt });
+  }
+
+  const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      contents: [{ parts: parts }],
+      generationConfig: {
+        responseMimeType: "application/json",
+        temperature: 0.1
+      }
+    })
+  });
+
+  if (!response.ok) {
+    throw new Error(`Error en la API de Gemini: ${response.status}`);
+  }
+
+  const data = await response.json();
+  const responseText = data.candidates?.[0]?.content?.parts?.[0]?.text;
+  if (!responseText) {
+    throw new Error("No se pudo obtener una respuesta legible de la IA.");
+  }
+
+  // Limpiar si el modelo de todas formas retorna con tags ```json
+  let cleanText = responseText.trim();
+  if (cleanText.startsWith("```json")) {
+    cleanText = cleanText.substring(7);
+  }
+  if (cleanText.endsWith("```")) {
+    cleanText = cleanText.substring(0, cleanText.length - 3);
+  }
+
+  const result = JSON.parse(cleanText.trim());
+  return result.transactions || [];
+}

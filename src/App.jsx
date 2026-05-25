@@ -862,6 +862,8 @@ export default function App() {
             cards={cards}
             onAddTransaction={handleAddTransaction}
             onRemoveTransaction={handleRemoveTransaction}
+            geminiApiKey={geminiApiKey}
+            financialState={financialState}
           />
         )}
 

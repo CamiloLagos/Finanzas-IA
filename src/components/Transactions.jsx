@@ -1,7 +1,15 @@
 import React, { useState } from 'react';
-import { Plus, Search, Filter, Trash2, Calendar, FileText, ArrowUpRight, ArrowDownLeft } from 'lucide-react';
+import { Plus, Search, Filter, Trash2, Calendar, FileText, ArrowUpRight, ArrowDownLeft, Upload, Sparkles, CheckCircle, RefreshCw } from 'lucide-react';
+import { parseDocumentWithGemini } from '../services/aiParser';
 
-export default function Transactions({ transactions, cards, onAddTransaction, onRemoveTransaction }) {
+export default function Transactions({ 
+  transactions, 
+  cards, 
+  onAddTransaction, 
+  onRemoveTransaction,
+  geminiApiKey,
+  financialState
+}) {
   
   // Form state
   const [type, setType] = useState('expense');
@@ -10,13 +18,109 @@ export default function Transactions({ transactions, cards, onAddTransaction, on
   const [description, setDescription] = useState('');
   const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
   const [selectedCard, setSelectedCard] = useState('');
-  const [installments, setInstallments] = useState(1);      // NUEVO: Estado de cuotas
-  const [interestRate, setInterestRate] = useState(0);      // NUEVO: Estado de interés
+  const [installments, setInstallments] = useState(1);
+  const [interestRate, setInterestRate] = useState(0);
 
   // Filters state
   const [searchTerm, setSearchTerm] = useState('');
   const [filterType, setFilterType] = useState('all');
   const [filterCategory, setFilterCategory] = useState('all');
+
+  // Scanner state
+  const [activeMode, setActiveMode] = useState('manual'); // 'manual' or 'ai_scan'
+  const [selectedFile, setSelectedFile] = useState(null);
+  const [fileBase64, setFileBase64] = useState('');
+  const [fileText, setFileText] = useState('');
+  const [isTextFile, setIsTextFile] = useState(false);
+  const [mimeType, setMimeType] = useState('');
+  const [scanning, setScanning] = useState(false);
+  const [scanError, setScanError] = useState('');
+  const [previewTransactions, setPreviewTransactions] = useState([]);
+
+  // Handlers
+  const handleFileChange = (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    setSelectedFile(file);
+    setScanError('');
+    setPreviewTransactions([]);
+
+    const reader = new FileReader();
+    const isText = file.name.endsWith('.csv') || file.name.endsWith('.txt');
+    setIsTextFile(isText);
+    setMimeType(file.type);
+
+    reader.onload = (event) => {
+      if (isText) {
+        setFileText(event.target.result);
+      } else {
+        const dataUrl = event.target.result;
+        const base64 = dataUrl.split(',')[1];
+        setFileBase64(base64);
+      }
+    };
+
+    if (isText) {
+      reader.readAsText(file);
+    } else {
+      reader.readAsDataURL(file);
+    }
+  };
+
+  const handleScanDocument = async () => {
+    if (!selectedFile || scanning) return;
+    if (!geminiApiKey) {
+      setScanError("⚠️ Por favor configura tu clave de Gemini API en la pestaña Ajustes para poder escanear con IA.");
+      return;
+    }
+
+    setScanning(true);
+    setScanError('');
+
+    try {
+      const dataToSend = isTextFile ? fileText : fileBase64;
+      const extracted = await parseDocumentWithGemini(dataToSend, mimeType, isTextFile, geminiApiKey, financialState);
+      
+      if (extracted && extracted.length > 0) {
+        setPreviewTransactions(extracted.map((tx, idx) => ({
+          ...tx,
+          id: Date.now().toString() + idx,
+          checked: true
+        })));
+      } else {
+        setScanError("No se encontraron transacciones en el documento. Asegúrate de que los montos e ingresos/gastos estén legibles.");
+      }
+    } catch (err) {
+      console.error(err);
+      setScanError(err.message || "Error al procesar el archivo. Intenta con otra imagen o PDF.");
+    } finally {
+      setScanning(false);
+    }
+  };
+
+  const handleImportTransactions = () => {
+    const selectedTxs = previewTransactions.filter(t => t.checked);
+    if (selectedTxs.length === 0) return;
+
+    selectedTxs.forEach(t => {
+      onAddTransaction({
+        id: Date.now().toString() + Math.random().toString(36).substr(2, 5),
+        type: t.type,
+        amount: t.amount,
+        category: t.category || 'Otros',
+        description: t.description || 'Gasto importado',
+        date: t.date || new Date().toISOString().split('T')[0],
+        targetName: t.targetName || '',
+        installments: t.installments || 1,
+        interestRate: t.interestRate || 0
+      });
+    });
+
+    setSelectedFile(null);
+    setPreviewTransactions([]);
+    alert(`¡Se importaron ${selectedTxs.length} transacciones correctamente!`);
+  };
 
   // Format Helper
   const formatMoney = (val) => new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 }).format(val);
@@ -60,132 +164,265 @@ export default function Transactions({ transactions, cards, onAddTransaction, on
   return (
     <div style={{ animation: 'slideIn 0.3s cubic-bezier(0.4, 0, 0.2, 1)' }} className="dashboard-grid">
       
-      {/* Lado Izquierdo: Formulario Manual */}
+      {/* Lado Izquierdo: Formulario Manual vs Escáner IA */}
       <div className="glass-card" style={{ height: 'fit-content' }}>
-        <h3 style={{ marginBottom: '20px', display: 'flex', alignItems: 'center', gap: '8px' }}>
-          <Plus size={18} color="var(--color-teal)" />
-          Registrar Movimiento Manual
-        </h3>
-        <form onSubmit={handleSubmit}>
-          <div className="form-group">
-            <label>Tipo de Operación</label>
-            <select 
-              className="form-control"
-              value={type}
-              onChange={(e) => setType(e.target.value)}
-            >
-              <option value="expense">Gasto</option>
-              <option value="income">Ingreso</option>
-            </select>
-          </div>
+        <div style={{ display: 'flex', gap: '8px', marginBottom: '20px' }}>
+          <button 
+            type="button" 
+            className={`btn ${activeMode === 'manual' ? 'btn-primary' : ''}`}
+            style={{ flex: 1, padding: '8px', fontSize: '13px' }}
+            onClick={() => setActiveMode('manual')}
+          >
+            Registro Manual
+          </button>
+          <button 
+            type="button" 
+            className={`btn ${activeMode === 'ai_scan' ? 'btn-primary' : ''}`}
+            style={{ flex: 1, padding: '8px', fontSize: '13px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}
+            onClick={() => setActiveMode('ai_scan')}
+          >
+            <Sparkles size={14} /> Escanear con IA
+          </button>
+        </div>
 
-          <div className="form-group">
-            <label>Monto (COP)</label>
-            <input 
-              type="number" 
-              className="form-control"
-              placeholder="Ej: 25000"
-              value={amount}
-              onChange={(e) => setAmount(e.target.value)}
-              required
-            />
-          </div>
-
-          {type === 'expense' && (
-            <>
+        {activeMode === 'manual' ? (
+          <>
+            <h3 style={{ marginBottom: '20px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <Plus size={18} color="var(--color-teal)" />
+              Registrar Movimiento Manual
+            </h3>
+            <form onSubmit={handleSubmit}>
               <div className="form-group">
-                <label>Categoría</label>
+                <label>Tipo de Operación</label>
                 <select 
                   className="form-control"
-                  value={category}
-                  onChange={(e) => setCategory(e.target.value)}
+                  value={type}
+                  onChange={(e) => setType(e.target.value)}
                 >
-                  <option value="Alimentación">Alimentación</option>
-                  <option value="Transporte">Transporte</option>
-                  <option value="Entretenimiento">Entretenimiento</option>
-                  <option value="Servicios">Servicios</option>
-                  <option value="Compras">Compras</option>
-                  <option value="Salud">Salud</option>
-                  <option value="Educación">Educación</option>
-                  <option value="Otros">Otros</option>
+                  <option value="expense">Gasto</option>
+                  <option value="income">Ingreso</option>
                 </select>
               </div>
 
               <div className="form-group">
-                <label>Método de Pago (Cargar a)</label>
-                <select 
+                <label>Monto (COP)</label>
+                <input 
+                  type="number" 
                   className="form-control"
-                  value={selectedCard}
-                  onChange={(e) => setSelectedCard(e.target.value)}
-                >
-                  <option value="">Saldo Disponible (Efectivo/Débito)</option>
-                  {cards.map((card, idx) => (
-                    <option key={idx} value={card.name}>
-                      Tarjeta de Crédito: {card.name} (Cupo disp: {formatMoney(card.limit - card.balance)})
-                    </option>
-                  ))}
-                </select>
+                  placeholder="Ej: 25000"
+                  value={amount}
+                  onChange={(e) => setAmount(e.target.value)}
+                  required
+                />
               </div>
 
-              {/* NUEVO: Campos dinámicos de diferimiento cuando se selecciona tarjeta */}
-              {selectedCard !== '' && (
-                <div className="form-row" style={{ animation: 'slideIn 0.2s ease-out' }}>
+              {type === 'expense' && (
+                <>
                   <div className="form-group">
-                    <label>Diferir a cuotas</label>
-                    <input 
-                      type="number" 
-                      min="1" 
-                      className="form-control" 
-                      value={installments}
-                      onChange={(e) => setInstallments(e.target.value)}
-                      required
-                    />
+                    <label>Categoría</label>
+                    <select 
+                      className="form-control"
+                      value={category}
+                      onChange={(e) => setCategory(e.target.value)}
+                    >
+                      <option value="Alimentación">Alimentación</option>
+                      <option value="Transporte">Transporte</option>
+                      <option value="Entretenimiento">Entretenimiento</option>
+                      <option value="Servicios">Servicios</option>
+                      <option value="Compras">Compras</option>
+                      <option value="Salud">Salud</option>
+                      <option value="Educación">Educación</option>
+                      <option value="Otros">Otros</option>
+                    </select>
                   </div>
+
                   <div className="form-group">
-                    <label>Interés mensual %</label>
-                    <input 
-                      type="number" 
-                      step="0.01" 
-                      min="0" 
-                      className="form-control" 
-                      placeholder="Ej: 1.8"
-                      value={interestRate}
-                      onChange={(e) => setInterestRate(e.target.value)}
-                      required
-                    />
+                    <label>Método de Pago (Cargar a)</label>
+                    <select 
+                      className="form-control"
+                      value={selectedCard}
+                      onChange={(e) => setSelectedCard(e.target.value)}
+                    >
+                      <option value="">Saldo Disponible (Efectivo/Débito)</option>
+                      {cards.map((card, idx) => (
+                        <option key={idx} value={card.name}>
+                          Tarjeta de Crédito: {card.name} (Cupo disp: {formatMoney(card.limit - card.balance)})
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  {selectedCard !== '' && (
+                    <div className="form-row" style={{ animation: 'slideIn 0.2s ease-out' }}>
+                      <div className="form-group">
+                        <label>Diferir a cuotas</label>
+                        <input 
+                          type="number" 
+                          min="1" 
+                          className="form-control" 
+                          value={installments}
+                          onChange={(e) => setInstallments(e.target.value)}
+                          required
+                        />
+                      </div>
+                      <div className="form-group">
+                        <label>Interés mensual %</label>
+                        <input 
+                          type="number" 
+                          step="0.01" 
+                          min="0" 
+                          className="form-control" 
+                          placeholder="Ej: 1.8"
+                          value={interestRate}
+                          onChange={(e) => setInterestRate(e.target.value)}
+                          required
+                        />
+                      </div>
+                    </div>
+                  )}
+                </>
+              )}
+
+              <div className="form-group">
+                <label>Concepto / Descripción</label>
+                <input 
+                  type="text" 
+                  className="form-control"
+                  placeholder="Ej: Almuerzo ejecutivo, Pago nómina..."
+                  value={description}
+                  onChange={(e) => setDescription(e.target.value)}
+                  required
+                />
+              </div>
+
+              <div className="form-group">
+                <label>Fecha</label>
+                <input 
+                  type="date" 
+                  className="form-control"
+                  value={date}
+                  onChange={(e) => setDate(e.target.value)}
+                  required
+                />
+              </div>
+
+              <button type="submit" className="btn btn-primary" style={{ width: '100%', marginTop: '10px' }}>
+                Registrar Movimiento
+              </button>
+            </form>
+          </>
+        ) : (
+          <>
+            <h3 style={{ marginBottom: '20px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <Sparkles size={18} color="var(--color-teal)" />
+              Escanear Factura o Extracto
+            </h3>
+            
+            <div className="form-group" style={{ 
+              textAlign: 'center', 
+              border: '2px dashed rgba(0, 242, 254, 0.2)', 
+              padding: '30px 20px', 
+              borderRadius: '12px', 
+              cursor: 'pointer', 
+              background: 'rgba(255,255,255,0.01)', 
+              position: 'relative',
+              transition: 'all 0.2s'
+            }}>
+              <input 
+                type="file" 
+                accept="image/*,application/pdf,.csv,.txt"
+                onChange={handleFileChange} 
+                style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', opacity: 0, cursor: 'pointer' }}
+              />
+              <Upload size={36} color="var(--color-teal)" style={{ margin: '0 auto 12px', opacity: 0.8 }} />
+              {selectedFile ? (
+                <div>
+                  <strong style={{ fontSize: '13.5px', color: 'var(--text-main)' }}>{selectedFile.name}</strong>
+                  <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '4px' }}>
+                    {(selectedFile.size / 1024).toFixed(1)} KB | Tipo: {selectedFile.type || 'Desconocido'}
                   </div>
                 </div>
+              ) : (
+                <div>
+                  <strong style={{ fontSize: '13.5px', display: 'block', marginBottom: '4px', color: 'var(--text-main)' }}>Arrastra o selecciona tu archivo</strong>
+                  <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Soporta fotos (JPG/PNG), PDF, CSV o TXT</span>
+                </div>
               )}
-            </>
-          )}
+            </div>
 
-          <div className="form-group">
-            <label>Concepto / Descripción</label>
-            <input 
-              type="text" 
-              className="form-control"
-              placeholder="Ej: Almuerzo ejecutivo, Pago nómina..."
-              value={description}
-              onChange={(e) => setDescription(e.target.value)}
-              required
-            />
-          </div>
+            {selectedFile && (
+              <button 
+                type="button" 
+                className="btn btn-primary" 
+                style={{ width: '100%', marginTop: '10px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}
+                onClick={handleScanDocument}
+                disabled={scanning}
+              >
+                {scanning ? (
+                  <>
+                    <RefreshCw size={15} style={{ animation: 'spin 1.5s linear infinite' }} /> Aura está leyendo tu documento...
+                  </>
+                ) : (
+                  <>
+                    <Sparkles size={15} /> Analizar con Aura IA
+                  </>
+                )}
+              </button>
+            )}
 
-          <div className="form-group">
-            <label>Fecha</label>
-            <input 
-              type="date" 
-              className="form-control"
-              value={date}
-              onChange={(e) => setDate(e.target.value)}
-              required
-            />
-          </div>
+            {scanError && (
+              <div style={{ marginTop: '15px', padding: '10px 14px', background: 'rgba(239, 68, 68, 0.08)', border: '1px solid rgba(239, 68, 68, 0.2)', borderRadius: '10px', fontSize: '12.5px', color: 'var(--color-red)' }}>
+                {scanError}
+              </div>
+            )}
 
-          <button type="submit" className="btn btn-primary" style={{ width: '100%', marginTop: '10px' }}>
-            Registrar Movimiento
-          </button>
-        </form>
+            {previewTransactions.length > 0 && (
+              <div style={{ marginTop: '25px', borderTop: '1px solid var(--card-border)', paddingTop: '15px' }}>
+                <h4 style={{ fontSize: '13.5px', display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '15px', color: 'var(--color-green)' }}>
+                  <CheckCircle size={16} /> Movimientos Detectados por la IA
+                </h4>
+                
+                <div style={{ display: 'grid', gap: '8px', maxHeight: '250px', overflowY: 'auto', paddingRight: '4px', marginBottom: '15px' }}>
+                  {previewTransactions.map((tx, idx) => (
+                    <div key={tx.id || idx} style={{ display: 'flex', gap: '10px', alignItems: 'flex-start', padding: '10px 12px', background: 'rgba(255,255,255,0.02)', border: '1px solid var(--card-border)', borderRadius: '8px', fontSize: '12.5px' }}>
+                      <input 
+                        type="checkbox" 
+                        checked={tx.checked} 
+                        onChange={(e) => {
+                          setPreviewTransactions(prev => prev.map(item => item.id === tx.id ? { ...item, checked: e.target.checked } : item));
+                        }} 
+                        style={{ marginTop: '3px', cursor: 'pointer' }}
+                      />
+                      <div style={{ flex: 1 }}>
+                        <div className="flex-between">
+                          <strong style={{ color: 'var(--text-main)' }}>{tx.description}</strong>
+                          <span style={{ fontWeight: '700', color: tx.type === 'income' ? 'var(--color-green)' : 'var(--color-red)' }}>
+                            {formatMoney(tx.amount)}
+                          </span>
+                        </div>
+                        <div style={{ display: 'flex', gap: '8px', marginTop: '4px', fontSize: '11px', color: 'var(--text-muted)', flexWrap: 'wrap' }}>
+                          <span>Mes: {tx.date.substring(0, 7)}</span>
+                          <span>Cat: {tx.category}</span>
+                          {tx.targetName && <span style={{ color: 'var(--color-purple)' }}>{tx.targetName}</span>}
+                          {tx.installments > 1 && <span>({tx.installments} cuotas)</span>}
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+
+                <button 
+                  type="button" 
+                  className="btn btn-primary" 
+                  style={{ width: '100%', background: 'var(--grad-green)' }}
+                  onClick={handleImportTransactions}
+                >
+                  Confirmar e Importar {previewTransactions.filter(t => t.checked).length} Movimientos
+                </button>
+              </div>
+            )}
+          </>
+        )}
       </div>
 
       {/* Lado Derecho: Historial */}
