@@ -10,7 +10,8 @@ export default function Dashboard({
   fixedSalary, 
   onAddTransaction,
   onProcessMonthlyBilling, // Propiedades necesarias para pagar desde el checklist
-  onPayVehicleLoan
+  onPayVehicleLoan,
+  recurringBills = []
 }) {
   
   // Format money helper
@@ -214,16 +215,12 @@ export default function Dashboard({
       }
     });
 
-    // D. Servicios Fijos Recurrentes (Hogar)
-    const fixedBills = [
-      { name: 'Arriendo / Alquiler', amount: 1200000, keyword: 'arriendo', category: 'Servicios' },
-      { name: 'Servicios Públicos (Luz/Agua)', amount: 120000, keyword: 'luz', category: 'Servicios' },
-      { name: 'Internet Claro / Movistar', amount: 110000, keyword: 'internet', category: 'Servicios' }
-    ];
+    // D. Servicios Fijos Recurrentes (Hogar) - dinámicos
+    const billsToProcess = recurringBills || [];
 
-    fixedBills.forEach(bill => {
+    billsToProcess.forEach(bill => {
       const isPaid = monthlyTransactions.some(t => 
-        t.type === 'expense' && t.description.toLowerCase().includes(bill.keyword)
+        t.type === 'expense' && t.description.toLowerCase().includes(bill.keyword.toLowerCase())
       );
 
       list.push({

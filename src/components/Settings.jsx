@@ -16,7 +16,11 @@ export default function Settings({
   onSaveCosmosConfig,
   // Props para Salario Fijo
   fixedSalary,
-  onSaveFixedSalary
+  onSaveFixedSalary,
+  // Props para Gastos Recurrentes
+  recurringBills = [],
+  onAddRecurringBill,
+  onRemoveRecurringBill
 }) {
   const [apiKeyInput, setApiKeyInput] = useState(geminiApiKey || '');
   const [saveSuccess, setSaveSuccess] = useState(false);
@@ -192,6 +196,97 @@ export default function Settings({
                   <Check size={16} /> Guardar Salario
                 </>
               )}
+            </button>
+          </form>
+        </div>
+
+        {/* NUEVO: Configuración de Gastos Recurrentes */}
+        <div className="glass-card">
+          <h2 style={{ marginBottom: '15px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <Landmark size={22} color="var(--color-teal)" />
+            Gastos Recurrentes Mensuales
+          </h2>
+          <p style={{ marginBottom: '15px', fontSize: '13.5px' }}>
+            Define tus obligaciones fijas mensuales. El sistema las mostrará en el checklist del Dashboard y buscará la palabra clave en tus movimientos para marcarlas como pagadas automáticamente.
+          </p>
+
+          {/* Listado de Gastos Recurrentes */}
+          <div style={{ display: 'grid', gap: '10px', marginBottom: '20px' }}>
+            {recurringBills.length === 0 ? (
+              <div style={{ fontSize: '13px', color: 'var(--text-muted)', textAlign: 'center', padding: '15px', background: 'rgba(255,255,255,0.01)', borderRadius: '10px' }}>
+                No tienes gastos recurrentes configurados.
+              </div>
+            ) : (
+              recurringBills.map((bill) => (
+                <div key={bill.id} className="flex-between" style={{ padding: '10px 14px', background: 'rgba(255,255,255,0.02)', borderRadius: '8px', border: '1px solid var(--card-border)', fontSize: '13.5px' }}>
+                  <div>
+                    <strong>{bill.name}</strong>
+                    <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '2px' }}>
+                      Monto: {new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 }).format(bill.amount)} | Clave: "{bill.keyword}" | Cat: {bill.category}
+                    </div>
+                  </div>
+                  <button 
+                    type="button"
+                    className="btn btn-red" 
+                    style={{ padding: '4px 8px', fontSize: '11px', background: 'transparent', border: 'none', color: 'var(--color-red)' }}
+                    onClick={() => onRemoveRecurringBill(bill.id)}
+                  >
+                    <Trash2 size={14} />
+                  </button>
+                </div>
+              ))
+            )}
+          </div>
+
+          {/* Formulario para agregar Gasto Recurrente */}
+          <form onSubmit={(e) => {
+            e.preventDefault();
+            const name = e.target.billName.value;
+            const amount = parseFloat(e.target.billAmount.value);
+            const keyword = e.target.billKeyword.value.toLowerCase().trim();
+            const category = e.target.billCategory.value;
+            if (!name || !amount || !keyword) return;
+
+            onAddRecurringBill({
+              id: 'bill-' + Date.now(),
+              name,
+              amount,
+              keyword,
+              category
+            });
+
+            e.target.reset();
+          }} style={{ borderTop: '1px solid var(--card-border)', paddingTop: '15px' }}>
+            <h4 style={{ fontSize: '13.5px', marginBottom: '12px' }}>Agregar Gasto Recurrente</h4>
+            <div className="form-group">
+              <label>Nombre del Gasto</label>
+              <input type="text" name="billName" className="form-control" placeholder="Ej: Netflix, Gimnasio, Seguro..." required />
+            </div>
+            <div className="form-row">
+              <div className="form-group">
+                <label>Monto Mensual (COP)</label>
+                <input type="number" name="billAmount" className="form-control" placeholder="Ej: 50000" required />
+              </div>
+              <div className="form-group">
+                <label>Palabra Clave (Filtro)</label>
+                <input type="text" name="billKeyword" className="form-control" placeholder="Ej: netflix" required />
+              </div>
+            </div>
+            <div className="form-group">
+              <label>Categoría</label>
+              <select name="billCategory" className="form-control">
+                <option value="Servicios">Servicios</option>
+                <option value="Alimentación">Alimentación</option>
+                <option value="Transporte">Transporte</option>
+                <option value="Entretenimiento">Entretenimiento</option>
+                <option value="Compras">Compras</option>
+                <option value="Salud">Salud</option>
+                <option value="Educación">Educación</option>
+                <option value="Otros">Otros</option>
+              </select>
+            </div>
+            <button type="submit" className="btn btn-primary" style={{ width: '100%', marginTop: '5px' }}>
+              Agregar Gasto Recurrente
             </button>
           </form>
         </div>

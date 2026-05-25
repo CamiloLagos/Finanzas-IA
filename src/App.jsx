@@ -21,6 +21,7 @@ export default function App() {
   const [vehicleLoans, setVehicleLoans] = useState([]);
   const [friends, setFriends] = useState([]);
   const [fixedSalary, setFixedSalary] = useState(0);
+  const [recurringBills, setRecurringBills] = useState([]);
   
   // Settings / Keys
   const [geminiApiKey, setGeminiApiKey] = useState('');
@@ -66,6 +67,18 @@ export default function App() {
     if (localChatHistory) setChatHistory(JSON.parse(localChatHistory));
     if (localFixedSalary) setFixedSalary(parseFloat(localFixedSalary));
     
+    const localRecurringBills = localStorage.getItem('fin_recurring_bills');
+    if (localRecurringBills) {
+      setRecurringBills(JSON.parse(localRecurringBills));
+    } else {
+      const defaultBills = [
+        { id: 'bill-arriendo', name: 'Arriendo / Alquiler', amount: 1200000, keyword: 'arriendo', category: 'Servicios' },
+        { id: 'bill-luz', name: 'Servicios Públicos (Luz/Agua)', amount: 120000, keyword: 'luz', category: 'Servicios' },
+        { id: 'bill-internet', name: 'Internet Claro / Movistar', amount: 110000, keyword: 'internet', category: 'Servicios' }
+      ];
+      setRecurringBills(defaultBills);
+    }
+    
     setCosmosEndpoint(localCosmosEndpoint);
     setCosmosKey(localCosmosKey);
     setCosmosUserId(localCosmosUserId);
@@ -93,6 +106,7 @@ export default function App() {
         setVehicleLoans(result.state.vehicleLoans);
         setFriends(result.state.friends);
         if (result.state.fixedSalary) setFixedSalary(result.state.fixedSalary);
+        if (result.state.recurringBills) setRecurringBills(result.state.recurringBills);
         console.log("✅ Datos sincronizados desde la base de datos de Azure.");
       } else {
         console.log("No se detectaron datos en Azure Cosmos DB, usando almacenamiento local.");
@@ -148,6 +162,11 @@ export default function App() {
     localStorage.setItem('fin_fixed_salary', fixedSalary.toString());
   }, [fixedSalary, initialLoadDone]);
 
+  useEffect(() => {
+    if (!initialLoadDone) return;
+    localStorage.setItem('fin_recurring_bills', JSON.stringify(recurringBills));
+  }, [recurringBills, initialLoadDone]);
+
   // Persistir configs de Cosmos DB
   useEffect(() => {
     if (!initialLoadDone) return;
@@ -178,7 +197,8 @@ export default function App() {
           cards,
           vehicleLoans,
           friends,
-          fixedSalary
+          fixedSalary,
+          recurringBills
         });
       } catch (err) {
         console.error("Auto-sync error Cosmos DB:", err);
@@ -186,7 +206,7 @@ export default function App() {
     }, 1200);
 
     return () => clearTimeout(timer);
-  }, [balance, transactions, cards, vehicleLoans, friends, fixedSalary, cosmosEndpoint, cosmosKey, cosmosUserId, initialLoadDone]);
+  }, [balance, transactions, cards, vehicleLoans, friends, fixedSalary, recurringBills, cosmosEndpoint, cosmosKey, cosmosUserId, initialLoadDone]);
 
   // Clean up Telegram Bot Polling when app unmounts
   useEffect(() => {
@@ -242,6 +262,11 @@ export default function App() {
       { id: '5', type: 'expense', amount: 45000, category: 'Transporte', description: 'Gasolina', date: '2026-05-20', targetName: '', installments: 1, interestRate: 0 },
       { id: '6', type: 'loan_payment', amount: 680000, category: 'Transporte', description: 'Pago cuota Crédito Vehículo: Chevrolet Tracker', date: '2026-05-22', targetName: 'Crédito Chevrolet Tracker', installments: 1, interestRate: 0 }
     ];
+    const demoBills = [
+      { id: 'bill-arriendo', name: 'Arriendo / Alquiler', amount: 1200000, keyword: 'arriendo', category: 'Servicios' },
+      { id: 'bill-luz', name: 'Servicios Públicos (Luz/Agua)', amount: 120000, keyword: 'luz', category: 'Servicios' },
+      { id: 'bill-internet', name: 'Internet Claro / Movistar', amount: 110000, keyword: 'internet', category: 'Servicios' }
+    ];
 
     setBalance(demoBalance);
     setFixedSalary(demoSalary);
@@ -249,6 +274,7 @@ export default function App() {
     setVehicleLoans(demoVehicles);
     setFriends(demoFriends);
     setTransactions(demoTransactions);
+    setRecurringBills(demoBills);
     
     setChatHistory([
       { sender: 'ai', text: '¡Hola! He cargado tus datos demo para que pruebes las deudas diferidas a cuotas.\n\nTienes un salario fijo configurado de $3.800.000 COP y una compra diferida en tu tarjeta Visa. ¿En qué te puedo asesorar hoy?' }
@@ -263,6 +289,7 @@ export default function App() {
     setVehicleLoans([]);
     setFriends([]);
     setChatHistory([]);
+    setRecurringBills([]);
     localStorage.removeItem('telegram_last_update_id');
     stopTelegramPolling();
     setTelegramStatus({ status: 'inactive', message: '' });
@@ -276,6 +303,7 @@ export default function App() {
     setFriends(importedState.friends);
     if (importedState.fixedSalary) setFixedSalary(importedState.fixedSalary);
     if (importedState.chatHistory) setChatHistory(importedState.chatHistory);
+    if (importedState.recurringBills) setRecurringBills(importedState.recurringBills);
   };
 
   const handleSaveCosmosConfig = (config) => {
@@ -284,10 +312,44 @@ export default function App() {
     setCosmosUserId(config.userId);
   };
 
+  // AUXILIAR: Desplazar la fecha de los gastos al siguiente mes y establecer el día de pago
+  const adjustExpenseDate = (txDate, targetName, cardsList) => {
+    const baseDate = txDate || new Date().toISOString().split('T')[0];
+    const [yearStr, monthStr, dayStr] = baseDate.split('-');
+    let year = parseInt(yearStr, 10);
+    let month = parseInt(monthStr, 10);
+    let day = parseInt(dayStr, 10);
+
+    // Sumar 1 mes
+    month += 1;
+    if (month > 12) {
+      month = 1;
+      year += 1;
+    }
+
+    // Si es un gasto de tarjeta de crédito, colocar el día de pago de la tarjeta
+    if (targetName) {
+      const card = cardsList.find(c => c.name.toLowerCase() === targetName.toLowerCase());
+      if (card && card.paymentDay) {
+        day = card.paymentDay;
+      }
+    }
+
+    const paddedMonth = String(month).padStart(2, '0');
+    const paddedDay = String(day).padStart(2, '0');
+    return `${year}-${paddedMonth}-${paddedDay}`;
+  };
+
   // ADD MANUAL TRANSACTION CALLBACK
   const handleAddTransaction = (tx) => {
     const installments = tx.installments || 1;
     const interestRate = tx.interestRate || 0;
+    let finalDate = tx.date || new Date().toISOString().split('T')[0];
+
+    // Todos los gastos se desplazan al siguiente mes con su fecha de pago
+    if (tx.type === 'expense') {
+      finalDate = adjustExpenseDate(tx.date, tx.targetName, cards);
+    }
 
     if (tx.type === 'expense') {
       if (tx.targetName) {
@@ -306,7 +368,7 @@ export default function App() {
                     installments: installments,
                     remainingInstallments: installments,
                     interestRate: interestRate,
-                    date: tx.date || new Date().toISOString().split('T')[0]
+                    date: finalDate
                   });
                 }
 
@@ -332,7 +394,7 @@ export default function App() {
                 installments: installments,
                 remainingInstallments: installments,
                 interestRate: interestRate,
-                date: tx.date || new Date().toISOString().split('T')[0]
+                date: finalDate
               }] : []
             };
             return [...prev, newCard];
@@ -389,6 +451,7 @@ export default function App() {
 
     const txToSave = {
       ...tx,
+      date: finalDate,
       installments,
       interestRate
     };
@@ -770,6 +833,7 @@ export default function App() {
             onAddTransaction={handleAddTransaction}
             onProcessMonthlyBilling={handleProcessMonthlyBilling}
             onPayVehicleLoan={handlePayVehicleLoan}
+            recurringBills={recurringBills}
           />
         )}
         
@@ -838,6 +902,10 @@ export default function App() {
             // Props de Salario
             fixedSalary={fixedSalary}
             onSaveFixedSalary={(val) => setFixedSalary(val)}
+            // Props de Gastos Recurrentes
+            recurringBills={recurringBills}
+            onAddRecurringBill={(bill) => setRecurringBills(prev => [...prev, bill])}
+            onRemoveRecurringBill={(id) => setRecurringBills(prev => prev.filter(b => b.id !== id))}
           />
         )}
       </main>
