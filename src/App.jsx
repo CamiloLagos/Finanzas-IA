@@ -8,7 +8,7 @@ import IntegrationPanel from './components/IntegrationPanel';
 import Settings from './components/Settings';
 import { startTelegramPolling, stopTelegramPolling, sendTelegramMessage } from './services/telegramBot';
 import { parseTransactionTextLocal, parseTransactionTextGemini } from './services/aiParser';
-import { saveStateToCosmos } from './services/cosmosSync';
+import { saveStateToCosmos, loadStateFromCosmos } from './services/cosmosSync';
 
 export default function App() {
   const [activeTab, setActiveTab] = useState('dashboard');
@@ -20,14 +20,18 @@ export default function App() {
   const [cards, setCards] = useState([]);
   const [vehicleLoans, setVehicleLoans] = useState([]);
   const [friends, setFriends] = useState([]);
-  const [fixedSalary, setFixedSalary] = useState(0); // NUEVO: Salario fijo mensual
+  const [fixedSalary, setFixedSalary] = useState(0);
   
   // Settings / Keys
   const [geminiApiKey, setGeminiApiKey] = useState('');
   const [telegramToken, setTelegramToken] = useState('');
   const [telegramStatus, setTelegramStatus] = useState({ status: 'inactive', message: '' });
   
-  // Estados de Cosmos DB
+  // NUEVO: Credenciales por defecto cargadas de variables de entorno locales (seguras)
+  const DEFAULT_COSMOS_ENDPOINT = import.meta.env.VITE_COSMOS_ENDPOINT || '';
+  const DEFAULT_COSMOS_KEY = import.meta.env.VITE_COSMOS_KEY || '';
+  const DEFAULT_COSMOS_USERID = import.meta.env.VITE_COSMOS_USERID || 'hogar-lagos';
+
   const [cosmosEndpoint, setCosmosEndpoint] = useState('');
   const [cosmosKey, setCosmosKey] = useState('');
   const [cosmosUserId, setCosmosUserId] = useState('hogar-lagos');
@@ -35,7 +39,7 @@ export default function App() {
   // Chat History
   const [chatHistory, setChatHistory] = useState([]);
 
-  // 1. LOAD STATE FROM LOCALSTORAGE ON MOUNT
+  // 1. LOAD STATE FROM LOCALSTORAGE ON MOUNT & AUTO SYNC WITH COSMOS
   useEffect(() => {
     const localBalance = localStorage.getItem('fin_balance');
     const localTransactions = localStorage.getItem('fin_transactions');
@@ -47,10 +51,10 @@ export default function App() {
     const localChatHistory = localStorage.getItem('fin_chat_history');
     const localFixedSalary = localStorage.getItem('fin_fixed_salary');
     
-    // Cosmos DB configs
-    const localCosmosEndpoint = localStorage.getItem('fin_cosmos_endpoint') || '';
-    const localCosmosKey = localStorage.getItem('fin_cosmos_key') || '';
-    const localCosmosUserId = localStorage.getItem('fin_cosmos_user_id') || 'hogar-lagos';
+    // Cargar credenciales guardadas o usar las de Azure por defecto
+    const localCosmosEndpoint = localStorage.getItem('fin_cosmos_endpoint') || DEFAULT_COSMOS_ENDPOINT;
+    const localCosmosKey = localStorage.getItem('fin_cosmos_key') || DEFAULT_COSMOS_KEY;
+    const localCosmosUserId = localStorage.getItem('fin_cosmos_user_id') || DEFAULT_COSMOS_USERID;
 
     if (localBalance) setBalance(parseFloat(localBalance));
     if (localTransactions) setTransactions(JSON.parse(localTransactions));
@@ -70,8 +74,33 @@ export default function App() {
       loadDemoData();
     }
     
+    // NUEVO: Cargar los datos desde Azure Cosmos DB automáticamente al iniciar
+    loadInitialDataFromCloud(localCosmosEndpoint, localCosmosKey, localCosmosUserId);
+
     setInitialLoadDone(true);
   }, []);
+
+  // Carga inicial asíncrona desde Azure Cosmos DB
+  const loadInitialDataFromCloud = async (endpoint, key, userId) => {
+    if (!endpoint || !key) return;
+    try {
+      console.log("Cargando datos iniciales desde Azure Cosmos DB...");
+      const result = await loadStateFromCosmos(endpoint, key, userId);
+      if (result.success) {
+        setBalance(result.state.balance);
+        setTransactions(result.state.transactions);
+        setCards(result.state.cards.map(c => ({ ...c, deferredPurchases: c.deferredPurchases || [] })));
+        setVehicleLoans(result.state.vehicleLoans);
+        setFriends(result.state.friends);
+        if (result.state.fixedSalary) setFixedSalary(result.state.fixedSalary);
+        console.log("✅ Datos sincronizados desde la base de datos de Azure.");
+      } else {
+        console.log("No se detectaron datos en Azure Cosmos DB, usando almacenamiento local.");
+      }
+    } catch (error) {
+      console.error("Error al realizar la sincronización inicial con Cosmos DB:", error);
+    }
+  };
 
   // 2. SAVE STATE TO LOCALSTORAGE WHEN IT CHANGES
   useEffect(() => {
@@ -149,7 +178,7 @@ export default function App() {
           cards,
           vehicleLoans,
           friends,
-          fixedSalary // Guardar salario fijo en Cosmos DB
+          fixedSalary
         });
       } catch (err) {
         console.error("Auto-sync error Cosmos DB:", err);
@@ -169,7 +198,7 @@ export default function App() {
   // DEMO DATA SEEDER
   const loadDemoData = () => {
     const demoBalance = 2450000;
-    const demoSalary = 3800000; // Salario demo
+    const demoSalary = 3800000;
     const demoCards = [
       { 
         name: 'Visa Bancolombia', 
@@ -760,8 +789,8 @@ export default function App() {
             vehicleLoans={vehicleLoans} 
             friends={friends} 
             balance={balance}
-            fixedSalary={fixedSalary} // Pasar salario fijo
-            onAddTransaction={handleAddTransaction} // Callback para registrar salario directo
+            fixedSalary={fixedSalary}
+            onAddTransaction={handleAddTransaction}
           />
         )}
         

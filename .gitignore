@@ -39,6 +39,7 @@ terraform.rc
 
 # Environment & Secrets
 .env
+.env*
 .env*.local
 .env.local
 .env.development.local
