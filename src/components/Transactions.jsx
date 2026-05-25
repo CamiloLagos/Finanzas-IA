@@ -160,15 +160,16 @@ export default function Transactions({
     if (!amount || parseFloat(amount) <= 0 || !description) return;
 
     const isCard = type === 'expense' && selectedCard !== '';
+    const isPayment = type === 'card_payment' || type === 'loan_payment';
 
     onAddTransaction({
       id: Date.now().toString(),
       type,
       amount: parseFloat(amount),
-      category: type === 'income' ? 'Ingresos' : category,
+      category: type === 'income' ? 'Ingresos' : (isPayment ? 'Servicios' : category),
       description,
       date,
-      targetName: type === 'expense' ? selectedCard : '',
+      targetName: (type === 'expense' || isPayment) ? selectedCard : '',
       installments: isCard ? parseInt(installments, 10) : 1,
       interestRate: isCard ? parseFloat(interestRate) : 0
     });
@@ -227,10 +228,16 @@ export default function Transactions({
                 <select 
                   className="form-control"
                   value={type}
-                  onChange={(e) => setType(e.target.value)}
+                  onChange={(e) => {
+                    setType(e.target.value);
+                    setSelectedCard('');
+                    setDescription('');
+                  }}
                 >
                   <option value="expense">Gasto</option>
                   <option value="income">Ingreso</option>
+                  <option value="card_payment">Pago de Tarjeta de Crédito</option>
+                  <option value="loan_payment">Pago de Crédito de Vehículo</option>
                 </select>
               </div>
 
@@ -311,6 +318,54 @@ export default function Transactions({
                     </div>
                   )}
                 </>
+              )}
+
+              {type === 'card_payment' && (
+                <div className="form-group" style={{ animation: 'slideIn 0.2s ease-out' }}>
+                  <label>Selecciona la Tarjeta a Pagar</label>
+                  <select 
+                    className="form-control"
+                    value={selectedCard}
+                    onChange={(e) => {
+                      setSelectedCard(e.target.value);
+                      if (e.target.value) {
+                        setDescription(`Pago Tarjeta: ${e.target.value}`);
+                      }
+                    }}
+                    required
+                  >
+                    <option value="">-- Seleccionar Tarjeta --</option>
+                    {cards.map((card, idx) => (
+                      <option key={idx} value={card.name}>
+                        {card.name} (Deuda actual: {formatMoney(card.balance)})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+
+              {type === 'loan_payment' && (
+                <div className="form-group" style={{ animation: 'slideIn 0.2s ease-out' }}>
+                  <label>Selecciona el Crédito a Abonar</label>
+                  <select 
+                    className="form-control"
+                    value={selectedCard}
+                    onChange={(e) => {
+                      setSelectedCard(e.target.value);
+                      if (e.target.value) {
+                        setDescription(`Pago Crédito: ${e.target.value}`);
+                      }
+                    }}
+                    required
+                  >
+                    <option value="">-- Seleccionar Crédito --</option>
+                    {(financialState?.vehicleLoans || []).map((loan, idx) => (
+                      <option key={idx} value={loan.name}>
+                        {loan.name} (Saldo: {formatMoney(loan.balance)})
+                      </option>
+                    ))}
+                  </select>
+                </div>
               )}
 
               <div className="form-group">
@@ -560,7 +615,7 @@ export default function Transactions({
                       </div>
                     </td>
                     <td>
-                      <span className={`badge badge-${tx.type === 'income' || tx.type === 'friend_receive_payback' ? 'income' : tx.type === 'expense' ? 'expense' : 'payment'}`}>
+                      <span className={`badge badge-${(tx.type === 'income' || tx.type === 'friend_receive_payback') ? 'income' : (tx.type === 'card_payment' || tx.type === 'loan_payment' || tx.type === 'friend_payback') ? 'payment' : 'expense'}`}>
                         {tx.category}
                       </span>
                     </td>
@@ -570,9 +625,9 @@ export default function Transactions({
                         display: 'flex', 
                         alignItems: 'center', 
                         gap: '4px',
-                        color: tx.type === 'income' || tx.type === 'friend_receive_payback' ? 'var(--color-green)' : 'var(--color-red)'
+                        color: (tx.type === 'income' || tx.type === 'card_payment' || tx.type === 'loan_payment' || tx.type === 'friend_receive_payback' || tx.type === 'friend_payback' || tx.type === 'friend_borrow') ? 'var(--color-green)' : 'var(--color-red)'
                       }}>
-                        {tx.type === 'income' || tx.type === 'friend_receive_payback' ? (
+                        {(tx.type === 'income' || tx.type === 'card_payment' || tx.type === 'loan_payment' || tx.type === 'friend_receive_payback' || tx.type === 'friend_payback' || tx.type === 'friend_borrow') ? (
                           <ArrowUpRight size={14} />
                         ) : (
                           <ArrowDownLeft size={14} />
