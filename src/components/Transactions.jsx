@@ -46,6 +46,23 @@ export default function Transactions({
     setScanError('');
     setPreviewTransactions([]);
 
+    // Verificar si el PDF está protegido con contraseña
+    if (file.type === 'application/pdf' || file.name.endsWith('.pdf')) {
+      const checkReader = new FileReader();
+      checkReader.onload = (checkEvent) => {
+        const data = new Uint8Array(checkEvent.target.result);
+        let pdfHeader = '';
+        for (let i = 0; i < Math.min(data.length, 8192); i++) {
+          pdfHeader += String.fromCharCode(data[i]);
+        }
+        const isEncrypted = /\/Encrypt\s*\d+\s+\d+\s+R/.test(pdfHeader) || pdfHeader.includes('/Encrypt');
+        if (isEncrypted) {
+          setScanError("⚠️ El archivo PDF está protegido con contraseña (encriptado). Aura no puede leer documentos protegidos. Por favor, remueve la contraseña del PDF antes de cargarlo, o sube una captura de pantalla/imagen del documento.");
+        }
+      };
+      checkReader.readAsArrayBuffer(file);
+    }
+
     const reader = new FileReader();
     const isText = file.name.endsWith('.csv') || file.name.endsWith('.txt');
     setIsTextFile(isText);
@@ -70,6 +87,8 @@ export default function Transactions({
 
   const handleScanDocument = async () => {
     if (!selectedFile || scanning) return;
+    if (scanError && scanError.includes("protegido")) return;
+    
     if (!geminiApiKey) {
       setScanError("⚠️ Por favor configura tu clave de Gemini API en la pestaña Ajustes para poder escanear con IA.");
       return;
@@ -356,7 +375,7 @@ export default function Transactions({
                 className="btn btn-primary" 
                 style={{ width: '100%', marginTop: '10px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}
                 onClick={handleScanDocument}
-                disabled={scanning}
+                disabled={scanning || (scanError && scanError.includes("protegido"))}
               >
                 {scanning ? (
                   <>
