@@ -66,7 +66,17 @@ export default function Transactions({
     const reader = new FileReader();
     const isText = file.name.endsWith('.csv') || file.name.endsWith('.txt');
     setIsTextFile(isText);
-    setMimeType(file.type);
+
+    let typeOfFile = file.type;
+    if (!typeOfFile) {
+      if (file.name.endsWith('.pdf')) typeOfFile = 'application/pdf';
+      else if (file.name.endsWith('.png')) typeOfFile = 'image/png';
+      else if (file.name.endsWith('.jpg') || file.name.endsWith('.jpeg')) typeOfFile = 'image/jpeg';
+      else if (file.name.endsWith('.webp')) typeOfFile = 'image/webp';
+      else if (file.name.endsWith('.csv')) typeOfFile = 'text/csv';
+      else if (file.name.endsWith('.txt')) typeOfFile = 'text/plain';
+    }
+    setMimeType(typeOfFile);
 
     reader.onload = (event) => {
       if (isText) {

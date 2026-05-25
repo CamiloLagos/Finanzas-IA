@@ -12,6 +12,56 @@ function normalizeText(text) {
 }
 
 /**
+ * Realiza peticiones a la API de Gemini intentando múltiples modelos de forma secuencial en caso de error 404.
+ */
+async function callGeminiAPI(apiKey, contents, generationConfig = {}) {
+  const models = [
+    'gemini-1.5-flash',
+    'gemini-1.5-flash-latest',
+    'gemini-2.0-flash',
+    'gemini-1.5-pro'
+  ];
+
+  let lastError = null;
+
+  for (const model of models) {
+    try {
+      console.log(`Intentando conectar con el modelo Gemini: ${model}...`);
+      const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents,
+          generationConfig
+        })
+      });
+
+      if (response.status === 404) {
+        console.warn(`El modelo ${model} retornó 404 (No Encontrado). Intentando el siguiente...`);
+        lastError = new Error(`El modelo ${model} no está disponible en tu región/cuenta (404).`);
+        continue;
+      }
+
+      if (!response.ok) {
+        const errText = await response.text();
+        throw new Error(`Error en la API (${response.status}): ${errText}`);
+      }
+
+      const data = await response.json();
+      const responseText = data.candidates?.[0]?.content?.parts?.[0]?.text;
+      if (responseText !== undefined) {
+        return responseText;
+      }
+    } catch (error) {
+      console.error(`Error con el modelo ${model}:`, error);
+      lastError = error;
+    }
+  }
+
+  throw lastError || new Error("No se pudo obtener respuesta de ningún modelo de Gemini.");
+}
+
+/**
  * Analizador local basado en reglas heurísticas y expresiones regulares
  */
 export function parseTransactionTextLocal(text, financialState) {
@@ -285,25 +335,11 @@ ESTRUCTURA DE RESPUESTA REQUERIDA (JSON):
 }`;
 
   try {
-    const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        contents: [{ parts: [{ text: prompt }] }],
-        generationConfig: {
-          responseMimeType: "application/json",
-          temperature: 0.1
-        }
-      })
+    const responseText = await callGeminiAPI(apiKey, [{ parts: [{ text: prompt }] }], {
+      responseMimeType: "application/json",
+      temperature: 0.1
     });
 
-    if (!response.ok) {
-      throw new Error(`HTTP Error: ${response.status}`);
-    }
-
-    const data = await response.json();
-    const responseText = data.candidates?.[0]?.content?.parts?.[0]?.text;
-    
     if (responseText) {
       const resultObj = JSON.parse(responseText);
       return resultObj;
@@ -365,24 +401,10 @@ INSTRUCCIONES DE RESPUESTA:
       });
     });
 
-    const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        contents: apiContents,
-        generationConfig: {
-          temperature: 0.7
-        }
-      })
+    const responseText = await callGeminiAPI(apiKey, apiContents, {
+      temperature: 0.7
     });
 
-    if (!response.ok) {
-      throw new Error("HTTP Error");
-    }
-
-    const data = await response.json();
-    const responseText = data.candidates?.[0]?.content?.parts?.[0]?.text;
-    
     if (responseText) {
       return responseText;
     }
@@ -390,8 +412,6 @@ INSTRUCCIONES DE RESPUESTA:
     console.error(error);
     return "Lo siento, tuve un problema al conectarme con la IA de Gemini. Por favor, verifica tu API Key y tu conexión de red.";
   }
-
-  return "No pude obtener una respuesta de la IA en este momento.";
 }
 
 /**
@@ -452,24 +472,11 @@ export async function parseDocumentWithGemini(fileData, mimeType, isText, apiKey
     parts.push({ text: prompt });
   }
 
-  const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      contents: [{ parts: parts }],
-      generationConfig: {
-        responseMimeType: "application/json",
-        temperature: 0.1
-      }
-    })
+  const responseText = await callGeminiAPI(apiKey, [{ parts: parts }], {
+    responseMimeType: "application/json",
+    temperature: 0.1
   });
 
-  if (!response.ok) {
-    throw new Error(`Error en la API de Gemini: ${response.status}`);
-  }
-
-  const data = await response.json();
-  const responseText = data.candidates?.[0]?.content?.parts?.[0]?.text;
   if (!responseText) {
     throw new Error("No se pudo obtener una respuesta legible de la IA.");
   }
