@@ -291,12 +291,41 @@ export default function App() {
 
     if (tx.type === 'expense') {
       if (tx.targetName) {
-        setCards(prev => prev.map(c => {
-          if (c.name === tx.targetName) {
-            const updatedDeferred = [...(c.deferredPurchases || [])];
-            
-            if (installments > 1) {
-              updatedDeferred.push({
+        setCards(prev => {
+          const exists = prev.find(c => c.name.toLowerCase() === tx.targetName.toLowerCase());
+          if (exists) {
+            return prev.map(c => {
+              if (c.name.toLowerCase() === tx.targetName.toLowerCase()) {
+                const updatedDeferred = [...(c.deferredPurchases || [])];
+                
+                if (installments > 1) {
+                  updatedDeferred.push({
+                    id: tx.id || Date.now().toString(),
+                    description: tx.description,
+                    amount: tx.amount,
+                    installments: installments,
+                    remainingInstallments: installments,
+                    interestRate: interestRate,
+                    date: tx.date || new Date().toISOString().split('T')[0]
+                  });
+                }
+
+                return {
+                  ...c,
+                  balance: c.balance + tx.amount,
+                  deferredPurchases: updatedDeferred
+                };
+              }
+              return c;
+            });
+          } else {
+            const newCard = {
+              name: tx.targetName,
+              limit: 3000000,
+              balance: tx.amount,
+              cutoffDay: 15,
+              paymentDay: 30,
+              deferredPurchases: installments > 1 ? [{
                 id: tx.id || Date.now().toString(),
                 description: tx.description,
                 amount: tx.amount,
@@ -304,22 +333,58 @@ export default function App() {
                 remainingInstallments: installments,
                 interestRate: interestRate,
                 date: tx.date || new Date().toISOString().split('T')[0]
-              });
-            }
-
-            return {
-              ...c,
-              balance: c.balance + tx.amount,
-              deferredPurchases: updatedDeferred
+              }] : []
             };
+            return [...prev, newCard];
           }
-          return c;
-        }));
+        });
       } else {
         setBalance(prev => prev - tx.amount);
       }
     } else if (tx.type === 'income') {
       setBalance(prev => prev + tx.amount);
+    } else if (tx.type === 'card_payment') {
+      setBalance(prev => Math.max(0, prev - tx.amount));
+      setCards(prev => prev.map(c => 
+        c.name.toLowerCase() === tx.targetName.toLowerCase() ? { ...c, balance: Math.max(0, c.balance - tx.amount) } : c
+      ));
+    } else if (tx.type === 'loan_payment') {
+      setBalance(prev => Math.max(0, prev - tx.amount));
+      setVehicleLoans(prev => prev.map(v => 
+        v.name.toLowerCase() === tx.targetName.toLowerCase() ? { ...v, balance: Math.max(0, v.balance - tx.amount) } : v
+      ));
+    } else if (tx.type === 'friend_lend') {
+      setBalance(prev => Math.max(0, prev - tx.amount));
+      setFriends(prev => {
+        const exists = prev.find(f => f.name.toLowerCase() === tx.targetName.toLowerCase());
+        if (exists) {
+          return prev.map(f => f.name.toLowerCase() === tx.targetName.toLowerCase() 
+            ? { ...f, type: 'por_cobrar', balance: f.balance + tx.amount } : f
+          );
+        }
+        return [...prev, { name: tx.targetName, type: 'por_cobrar', balance: tx.amount }];
+      });
+    } else if (tx.type === 'friend_borrow') {
+      setBalance(prev => prev + tx.amount);
+      setFriends(prev => {
+        const exists = prev.find(f => f.name.toLowerCase() === tx.targetName.toLowerCase());
+        if (exists) {
+          return prev.map(f => f.name.toLowerCase() === tx.targetName.toLowerCase() 
+            ? { ...f, type: 'por_pagar', balance: f.balance + tx.amount } : f
+          );
+        }
+        return [...prev, { name: tx.targetName, type: 'por_pagar', balance: tx.amount }];
+      });
+    } else if (tx.type === 'friend_payback') {
+      setBalance(prev => Math.max(0, prev - tx.amount));
+      setFriends(prev => prev.map(f => 
+        f.name.toLowerCase() === tx.targetName.toLowerCase() ? { ...f, balance: Math.max(0, f.balance - tx.amount) } : f
+      ));
+    } else if (tx.type === 'friend_receive_payback') {
+      setBalance(prev => prev + tx.amount);
+      setFriends(prev => prev.map(f => 
+        f.name.toLowerCase() === tx.targetName.toLowerCase() ? { ...f, balance: Math.max(0, f.balance - tx.amount) } : f
+      ));
     }
 
     const txToSave = {
@@ -421,7 +486,7 @@ export default function App() {
   };
 
   // PROCESS MONTHLY CARD BILLING
-  const handleProcessMonthlyBilling = (cardName) => {
+  const handleProcessMonthlyBilling = (cardName, customMonth = null) => {
     const card = cards.find(c => c.name === cardName);
     if (!card) return;
 
@@ -460,13 +525,17 @@ export default function App() {
       } : c
     ));
 
+    const dateStr = customMonth 
+      ? `${customMonth}-${String(card.paymentDay || 10).padStart(2, '0')}` 
+      : new Date().toISOString().split('T')[0];
+
     const tx = {
       id: Date.now().toString(),
       type: 'card_payment',
       amount: totalToPay,
       category: 'Servicios',
       description: `Pago mensualidad tarjeta: ${cardName} (Abono a diferidos)`,
-      date: new Date().toISOString().split('T')[0],
+      date: dateStr,
       targetName: cardName,
       installments: 1,
       interestRate: 0
@@ -483,11 +552,15 @@ export default function App() {
     setVehicleLoans(prev => prev.filter(v => v.name !== loanName));
   };
 
-  const handlePayVehicleLoan = (loanName, amount) => {
+  const handlePayVehicleLoan = (loanName, amount, customMonth = null) => {
     setBalance(prev => Math.max(0, prev - amount));
     setVehicleLoans(prev => prev.map(v => 
       v.name === loanName ? { ...v, balance: Math.max(0, v.balance - amount) } : v
     ));
+
+    const dateStr = customMonth 
+      ? `${customMonth}-10` 
+      : new Date().toISOString().split('T')[0];
 
     const tx = {
       id: Date.now().toString(),
@@ -495,7 +568,7 @@ export default function App() {
       amount,
       category: 'Transporte',
       description: `Pago cuota Crédito Vehículo: ${loanName}`,
-      date: new Date().toISOString().split('T')[0],
+      date: dateStr,
       targetName: loanName,
       installments: 1,
       interestRate: 0
@@ -579,103 +652,7 @@ export default function App() {
       interestRate: result.interestRate || 0
     };
 
-    if (result.type === 'expense') {
-      if (result.targetName) {
-        setCards(prev => {
-          const exists = prev.find(c => c.name.toLowerCase() === result.targetName.toLowerCase());
-          if (exists) {
-            return prev.map(c => {
-              if (c.name.toLowerCase() === result.targetName.toLowerCase()) {
-                const updatedDeferred = [...(c.deferredPurchases || [])];
-                if (tx.installments > 1) {
-                  updatedDeferred.push({
-                    id: tx.id,
-                    description: tx.description,
-                    amount: tx.amount,
-                    installments: tx.installments,
-                    remainingInstallments: tx.installments,
-                    interestRate: tx.interestRate,
-                    date: tx.date
-                  });
-                }
-                return {
-                  ...c,
-                  balance: c.balance + tx.amount,
-                  deferredPurchases: updatedDeferred
-                };
-              }
-              return c;
-            });
-          } else {
-            const newCard = {
-              name: result.targetName,
-              limit: 3000000,
-              balance: tx.amount,
-              cutoffDay: 15,
-              paymentDay: 30,
-              deferredPurchases: tx.installments > 1 ? [{
-                id: tx.id,
-                description: tx.description,
-                amount: tx.amount,
-                installments: tx.installments,
-                remainingInstallments: tx.installments,
-                interestRate: tx.interestRate,
-                date: tx.date
-              }] : []
-            };
-            return [...prev, newCard];
-          }
-        });
-      } else {
-        setBalance(prev => prev - result.amount);
-      }
-    } else if (result.type === 'income') {
-      setBalance(prev => prev + result.amount);
-    } else if (result.type === 'card_payment') {
-      setBalance(prev => Math.max(0, prev - result.amount));
-      setCards(prev => prev.map(c => 
-        c.name.toLowerCase() === result.targetName.toLowerCase() ? { ...c, balance: Math.max(0, c.balance - result.amount) } : c
-      ));
-    } else if (result.type === 'loan_payment') {
-      setBalance(prev => Math.max(0, prev - result.amount));
-      setVehicleLoans(prev => prev.map(v => 
-        v.name.toLowerCase() === result.targetName.toLowerCase() ? { ...v, balance: Math.max(0, v.balance - result.amount) } : v
-      ));
-    } else if (result.type === 'friend_lend') {
-      setBalance(prev => Math.max(0, prev - result.amount));
-      setFriends(prev => {
-        const exists = prev.find(f => f.name.toLowerCase() === result.targetName.toLowerCase());
-        if (exists) {
-          return prev.map(f => f.name.toLowerCase() === result.targetName.toLowerCase() 
-            ? { ...f, type: 'por_cobrar', balance: f.balance + result.amount } : f
-          );
-        }
-        return [...prev, { name: result.targetName, type: 'por_cobrar', balance: result.amount }];
-      });
-    } else if (result.type === 'friend_borrow') {
-      setBalance(prev => prev + result.amount);
-      setFriends(prev => {
-        const exists = prev.find(f => f.name.toLowerCase() === result.targetName.toLowerCase());
-        if (exists) {
-          return prev.map(f => f.name.toLowerCase() === result.targetName.toLowerCase() 
-            ? { ...f, type: 'por_pagar', balance: f.balance + result.amount } : f
-          );
-        }
-        return [...prev, { name: result.targetName, type: 'por_pagar', balance: result.amount }];
-      });
-    } else if (result.type === 'friend_payback') {
-      setBalance(prev => Math.max(0, prev - result.amount));
-      setFriends(prev => prev.map(f => 
-        f.name.toLowerCase() === result.targetName.toLowerCase() ? { ...f, balance: Math.max(0, f.balance - result.amount) } : f
-      ));
-    } else if (result.type === 'friend_receive_payback') {
-      setBalance(prev => prev + result.amount);
-      setFriends(prev => prev.map(f => 
-        f.name.toLowerCase() === result.targetName.toLowerCase() ? { ...f, balance: Math.max(0, f.balance - result.amount) } : f
-      ));
-    }
-
-    setTransactions(prev => [tx, ...prev]);
+    handleAddTransaction(tx);
   };
 
   // TELEGRAM BOT RUNNER CONTROLLERS
@@ -791,6 +768,8 @@ export default function App() {
             balance={balance}
             fixedSalary={fixedSalary}
             onAddTransaction={handleAddTransaction}
+            onProcessMonthlyBilling={handleProcessMonthlyBilling}
+            onPayVehicleLoan={handlePayVehicleLoan}
           />
         )}
         
