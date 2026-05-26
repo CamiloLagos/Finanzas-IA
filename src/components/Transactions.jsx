@@ -2,6 +2,101 @@ import React, { useState } from 'react';
 import { Plus, Search, Filter, Trash2, Calendar, FileText, ArrowUpRight, ArrowDownLeft, Upload, Sparkles, CheckCircle, RefreshCw } from 'lucide-react';
 import { parseDocumentWithGemini } from '../services/aiParser';
 
+// Helper to check if a parsed transaction is a duplicate of an existing one
+const checkIfDuplicate = (tx, transactionsList = [], cardsList = []) => {
+  if (!tx) return false;
+
+  const normalizeText = (text) => {
+    if (!text) return '';
+    return text
+      .toLowerCase()
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "") // Remove accents
+      .replace(/[^a-z0-9]/g, "")      // Keep only alphanumeric characters
+      .trim();
+  };
+
+  const isSimilar = (desc1, desc2) => {
+    const clean1 = normalizeText(desc1);
+    const clean2 = normalizeText(desc2);
+    if (!clean1 || !clean2) return false;
+    return clean1 === clean2 || clean1.includes(clean2) || clean2.includes(clean1);
+  };
+
+  const amountTolerance = 5;
+  const isAmountMatch = (amt1, amt2) => {
+    return Math.abs((parseFloat(amt1) || 0) - (parseFloat(amt2) || 0)) <= amountTolerance;
+  };
+
+  const txAmount = parseFloat(tx.amount) || 0;
+  const txDescription = tx.description || '';
+  const txInstallments = parseInt(tx.installments, 10) || 1;
+  const txTargetName = tx.targetName || '';
+  const txType = tx.type || 'expense';
+
+  // 1. Check active credit card deferred purchases
+  if (txTargetName && txInstallments > 1) {
+    const matchingCard = cardsList.find(
+      c => normalizeText(c.name) === normalizeText(txTargetName)
+    );
+    if (matchingCard && matchingCard.deferredPurchases) {
+      const isDeferredDuplicate = matchingCard.deferredPurchases.some(dp => {
+        const dpAmount = parseFloat(dp.amount) || 0;
+        const dpInstallments = parseInt(dp.installments, 10) || 1;
+        return isSimilar(dp.description, txDescription) &&
+               isAmountMatch(dpAmount, txAmount) &&
+               dpInstallments === txInstallments;
+      });
+      if (isDeferredDuplicate) return true;
+    }
+  }
+
+  // Helper to calculate target adjusted date (matching adjustExpenseDate from App.jsx)
+  const getAdjustedDate = (txDate, targetName, cardsList) => {
+    const today = new Date();
+    const nextMonth = new Date(today.getFullYear(), today.getMonth() + 2, 0);
+    let finalDate = nextMonth.toISOString().split('T')[0];
+
+    if (targetName) {
+      const card = cardsList.find(c => c.name.toLowerCase() === targetName.toLowerCase());
+      if (card) {
+        const payDay = card.paymentDay || 30;
+        const targetDate = new Date(today.getFullYear(), today.getMonth() + 1, payDay);
+        finalDate = targetDate.toISOString().split('T')[0];
+      }
+    }
+    return finalDate;
+  };
+
+  const txOriginalDate = tx.date || '';
+  const txAdjustedDate = txType === 'expense' ? getAdjustedDate(txOriginalDate, txTargetName, cardsList) : txOriginalDate;
+
+  const formatDate = (d) => {
+    if (!d) return '';
+    return d.split('T')[0];
+  };
+
+  // 2. Check regular transactions (date, type, amount, similar description, target card name)
+  const isRegularDuplicate = transactionsList.some(t => {
+    if (t.type !== txType) return false;
+
+    const tAmount = parseFloat(t.amount) || 0;
+    if (!isAmountMatch(tAmount, txAmount)) return false;
+
+    const tTargetName = t.targetName || '';
+    if (normalizeText(tTargetName) !== normalizeText(txTargetName)) return false;
+
+    const tDate = formatDate(t.date);
+    const isDateMatch = (tDate && txOriginalDate && tDate === formatDate(txOriginalDate)) || 
+                        (tDate && txAdjustedDate && tDate === formatDate(txAdjustedDate));
+    if (!isDateMatch) return false;
+
+    return isSimilar(t.description, txDescription);
+  });
+
+  return isRegularDuplicate;
+};
+
 export default function Transactions({ 
   transactions, 
   cards, 
@@ -113,11 +208,15 @@ export default function Transactions({
       const extracted = await parseDocumentWithGemini(dataToSend, mimeType, isTextFile, geminiApiKey, financialState);
       
       if (extracted && extracted.length > 0) {
-        setPreviewTransactions(extracted.map((tx, idx) => ({
-          ...tx,
-          id: Date.now().toString() + idx,
-          checked: ignorePayments ? (tx.type !== 'card_payment' && tx.type !== 'loan_payment') : true
-        })));
+        setPreviewTransactions(extracted.map((tx, idx) => {
+          const isDuplicate = checkIfDuplicate(tx, transactions, cards);
+          return {
+            ...tx,
+            id: Date.now().toString() + idx,
+            isDuplicate,
+            checked: isDuplicate ? false : (ignorePayments ? (tx.type !== 'card_payment' && tx.type !== 'loan_payment') : true)
+          };
+        }));
       } else {
         setScanError("No se encontraron transacciones en el documento. Asegúrate de que los montos e ingresos/gastos estén legibles.");
       }
@@ -493,8 +592,25 @@ export default function Transactions({
                         style={{ marginTop: '3px', cursor: 'pointer' }}
                       />
                       <div style={{ flex: 1 }}>
-                        <div className="flex-between">
-                          <strong style={{ color: 'var(--text-main)' }}>{tx.description}</strong>
+                        <div className="flex-between" style={{ gap: '8px' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                            <strong style={{ color: 'var(--text-main)' }}>{tx.description}</strong>
+                            {tx.isDuplicate && (
+                              <span style={{ 
+                                display: 'inline-flex', 
+                                alignItems: 'center', 
+                                padding: '2px 6px', 
+                                background: 'rgba(245, 158, 11, 0.15)', 
+                                border: '1px solid rgba(245, 158, 11, 0.3)', 
+                                borderRadius: '4px', 
+                                fontSize: '10px', 
+                                fontWeight: '600', 
+                                color: '#f59e0b' 
+                              }}>
+                                Ya registrado
+                              </span>
+                            )}
+                          </div>
                           <span style={{ fontWeight: '700', color: tx.type === 'income' ? 'var(--color-green)' : 'var(--color-red)' }}>
                             {formatMoney(tx.amount)}
                           </span>
